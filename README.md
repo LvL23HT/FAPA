@@ -42,6 +42,9 @@ This tool is provided **for research and educational purposes only**. Use it onl
 - **Future Internationalization:**  
   Planned support for multiple languages to accommodate researchers worldwide.
 
+## Screenshot
+![FAPA Tool Screenshot.](/Screenshot.png "FAPA.")
+
 ## Installation
 
 ### Requirements
