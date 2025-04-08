@@ -76,16 +76,18 @@ def check_for_updates():
 
 
 def update_script():
+    # URL the script updated
+    SCRIPT_URL = "https://raw.githubusercontent.com/LvL23HT/FAPA/main/FAPA.py"
     try:
-        repo_dir = os.path.dirname(os.path.abspath(__file__))
+        response = requests.get(SCRIPT_URL, timeout=5)
+        response.raise_for_status()
         print(GREEN + "[+] Updating the script from the repository..." + RESET)
-        # Run "git pull" in the repository directory.
-        subprocess.run(["git", "-C", repo_dir, "pull"], check=True)
+        with open(__file__, "wb") as file:
+            file.write(response.content)
         print(GREEN + "[+] Update complete. Restarting the script..." + RESET)
-        # Restart the script using the current Python interpreter.
         os.execv(sys.executable, [sys.executable] + sys.argv)
     except Exception as e:
-        print(RED + "[-] Error updating the script:" + str(e) + RESET)
+        print(RED + "[-] Error updating the script:", e + RESET)
 
 
 # Call the checking functions before continuing with the rest of the script.
