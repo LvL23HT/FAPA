@@ -31,7 +31,24 @@ Below is a comprehensive list of what FAPA can do. Items marked 🆕 are new in 
 
 ## Screenshot
 
-*(Screenshot placeholder)*
+# Main Menu
+![](https://github.com/LvL23HT/FAPA/blob/main/main_menu.png)
+
+# Create AP Fake
+![](https://github.com/LvL23HT/FAPA/blob/main/create_ap_fake.png)
+
+# Mitn Attack 
+![](https://github.com/LvL23HT/FAPA/blob/main/mitm_attack.png)
+
+# Phishing Portal
+![](https://github.com/LvL23HT/FAPA/blob/main/phishing_portal.png)
+
+# Sniffing Injection
+![](https://github.com/LvL23HT/FAPA/blob/main/sniffing_injection.png)
+
+# Vulneravility Scan
+![](https://github.com/LvL23HT/FAPA/blob/main/vulnerability_scan.png)
+
 
 ## Installation
 
