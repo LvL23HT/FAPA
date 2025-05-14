@@ -6,7 +6,7 @@ Version 0.3 · May 2025  |  Proof-of-concept framework for Wi-Fi security resear
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Version](https://img.shields.io/badge/version-v0.3-orange.svg)
 
-![fapa-banner.png](https://i.postimg.cc/LX6cPNXG/fapa-banner.png)
+![fapa-banner.png](https://github.com/LvL23HT/FAPA/blob/main/fapa-banner.png)
 
 ## Overview
 
