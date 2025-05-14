@@ -1,146 +1,116 @@
-# FAPA - Fake Access Point Attack Tool
+# FAPA — Fake Access Point Attack Tool
+
+Version 0.3 · May 2025  |  Proof-of-concept framework for Wi-Fi security research and classroom demos
+
+![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+![Version](https://img.shields.io/badge/version-v0.3-orange.svg)
 
 ## Overview
 
-The **Fake Access Point Attack Tool** is a proof-of-concept (PoC) designed to demonstrate the risks associated with connecting to "free Wi-Fi" access points. This tool simulates a malicious access point to lure victims and then allows you to execute various attacks such as Man-In-The-Middle (MITM), phishing, vulnerability scanning, and packet manipulation.
+The Fake Access Point Attack Tool (FAPA) is a full-stack lab environment that shows how dangerous it is to join "free Wi-Fi". It creates a rogue AP, silently funnels client traffic through the attacker, and then lets you chain together Man-in-the-Middle attacks, phishing portals, vulnerability scans, packet injection, credential harvesting, real-time monitoring, and reporting—all from one interactive Python script.
 
-**Disclaimer:**  
-This tool is provided **for research and educational purposes only**. Use it only in environments where you have explicit permission to perform security testing. Unauthorized use on networks without consent is illegal and unethical. By using this tool, you agree that the developers are not responsible for any damage or legal issues that may arise from its misuse.
+> **Disclaimer:** This tool is provided for research and educational purposes only. Use it exclusively on systems and networks where you have explicit, written authorisation. Unauthorised use is illegal and unethical. The developers accept no responsibility for misuse or resulting damages.
 
 ## Features
 
-- **Fake Access Point Creation:**  
-  Create a malicious access point (Fake AP) using `hostapd`, `dnsmasq`, and NAT. This helps demonstrate how easily victims can be lured into connecting to a rogue network.
+Below is a comprehensive list of what FAPA can do. Items marked 🆕 are new in v0.3.
 
-- **MITM Attacks:**  
-  Perform various MITM attacks using:
-  - **Bettercap** for ARP spoofing.
-  - **Ettercap** for DNS spoofing (with GUI and caplets).
-  - **Mitmproxy** for Proxy MITM.
-
-- **Phishing Portal:**  
-  Deploy phishing scenarios using **Wifiphisher** to capture credentials and sensitive information.
-
-- **Traffic Sniffing, Injection, and Packet Manipulation:**  
-  Capture, analyze, inject, and manipulate network packets using tools like `tcpdump` and **Scapy**.
-
-- **Vulnerability Scanning:**  
-  Scan connected devices for vulnerabilities using **Nmap** with a customizable set of NSE (Nmap Scripting Engine) script categories and arguments.
-
-- **Client Monitoring:**  
-  Monitor in real-time the devices connected to your Fake AP.
-
-- **Real-Time Notifications:**  
-  Receive notifications about connected clients via a Telegram bot.
-
-- **Reporting:**  
-  Generate and analyze reports in CSV format detailing the outcomes of attacks and scans.
-
-- **Network Configuration Restoration:**  
-  Quickly restore the network configuration to its original state after testing.
-
-- **Future Internationalization:**  
-  Planned support for multiple languages to accommodate researchers worldwide.
+| Category | Details |
+|----------|---------|
+| Fake Access Point Creation | Build an open AP with hostapd, dnsmasq, DHCP pool, and NAT. Choose guided (custom SSID/channel) or one-click automatic mode. |
+| Man-in-the-Middle (MITM) Suite | Centralised MITMAttacker class orchestrates each attack and cleans up afterward.<br>• Bettercap ARP Spoofing – classic network MITM.<br>• Ettercap DNS Spoofing – GUI + caplet helper.<br>• mitmproxy – transparent HTTP/S interception.<br>• SSLStrip + 🆕 – downgrade HTTPS and capture plain-text creds.<br>• Form Grabbing 🆕 – dump HTTP/HTTPS form data & cookies to ~/creds.txt.<br>• WPAD Spoofing 🆕 – serve malicious wpad.dat, auto-starts Apache, tails hits.<br>• HSTS Bypass 🆕 – bulk /etc/hosts override with live tcpdump monitor.<br>• Evilginx v3.3.0 – transparent phishing with ready-to-compile helper.<br>• Full Traffic Capture – tcpdump to ./mitm_capture.pcap. |
+| Phishing Portal | Launch Wifiphisher scenarios against the fake AP or scan for any ESSID, then harvest credentials. |
+| Traffic Sniffing, Injection & Manipulation | Passive: Wireshark/tcpdump launcher. Active: Scapy wizard to capture packets, inject ICMP/TCP, edit headers, swap payloads, and resend. |
+| Vulnerability Scanning | Customisable Nmap engine picker: select NSE categories, add per-category script-args, scan connected clients, view results in-terminal. |
+| Client Monitoring | Real-time list built from hostapd station table + dnsmasq leases. Press Enter to refresh every 5 s. |
+| Real-Time Telegram Notifications 🆕 | Background thread posts a Markdown list of connected clients every 10 s, but only when it changes. Configure bot token & chat ID once; stop via menu. |
+| CSV Reporting | Write attack descriptions & results to CSV; later open and paginate records inside FAPA. |
+| Network Restoration | Stop hostapd/dnsmasq/Bettercap, flush iptables/nft, reset modes, and restore backups of ettercap & hosts—all with one menu option. |
+| AI Phishing | Soon AI-assisted phishing page generation |
 
 ## Screenshot
-![FAPA Tool Screenshot.](/Screenshot.png "FAPA.")
+
+*(Screenshot placeholder)*
 
 ## Installation
 
 ### Requirements
 
-- **Operating System:** Kali Linux (recommended) or any Linux distribution.
-- **Python 3.x**  
-- **Packages:**  
-  - `aircrack-ng`, `hostapd`, `dnsmasq`, `bettercap`, `wifiphisher`, `tcpdump`, `gnome-terminal`, `scapy`, `evilginx2`
-- **Privileges:** Must be run as root or with sudo.
+- OS: Kali Linux (recommended) or any Debian-based distro
+- Python 3.9+
+- Root privileges (sudo)
+- Packages (auto-installed on first run):
+  ```
+  aircrack-ng  apache2  bettercap  dnsmasq  git  gnome-terminal
+  golang-go    hostapd  mitmproxy  tcpdump  wifiphisher
+  ```
+- Python libs: requests, scapy (installed inside local venv/)
 
 ### Setup
 
-1. **Clone the Repository:**
+```bash
+# 1 · Clone the repo
+$ git clone https://github.com/LvL23HT/FAPA.git
+$ cd FAPA
 
-   ```bash
-   git clone https://github.com/LvL23HT/FAPA.git
-   cd FAPA
+# 2 · Launch the script (creates venv & installs dependencies)
+$ sudo python3 FAPA.py
 
-2. **Run the Script:**
+# Or to make the script executable
+$ chmod +x FAPA.py
+$ sudo ./FAPA.py
+```
 
-   ```bash
-   sudo python3 FAPA.py
-   
-When the script starts, it will check for root privileges and then display a Code of Conduct and Disclaimer that must be accepted before proceeding.
+
+On first start FAPA checks for root, creates venv/, fetches all system deps, displays the Code of Conduct prompt, and then shows the main menu.
 
 ## Usage
 
-The tool provides an interactive menu with options for:
+The interactive menu flow mirrors the feature list:
 
-1. **Creating a Fake AP:**
-Set up a rogue access point to lure victims.
-
-2. **MITM Attacks:**
-Launch various MITM techniques using Bettercap, Ettercap, and mitmproxy.
-
-3. **Phishing Portal:**
-Execute phishing campaigns with Wifiphisher.
-
-4. **Sniffing, Injection, and Packet Manipulation:**
-Capture and interact with network traffic using Scapy and tcpdump.
-
-5. **Vulnerability Scanning:**
-Scan connected devices with Nmap using customizable NSE script categories and arguments.
-
-6. **Client Monitoring:**
-Monitor connected devices in real time.
-
-7. **Real-Time Notifications:**
-Set up Telegram notifications for client changes.
-
-8. **Reporting:**
-Generate and analyze CSV reports.
-
-9. **Restoring Network Configuration:**
-Return the network to its original state after an attack.
-
-10. **Help & Documentation:**
-Display detailed help, usage instructions, and links to official documentation.
-
-11. **Exit:**
-Safely exit the tool
+1. **Create Fake AP** – set up a rogue hotspot.
+2. **MITM Attacks** – open sub-menu with all nine modules listed above.
+3. **Phishing Portal** – run Wifiphisher campaigns.
+4. **Sniffing, Injection, Manipulation** – Wireshark/tcpdump/Scapy utilities.
+5. **Vulnerability Scanning** – Nmap NSE wizard.
+6. **Client Monitoring** – live station list.
+7. **Real-Time Notifications** – Telegram bot start/stop.
+8. **Reporting** – generate or analyse CSV incident logs.
+9. **Restore Network Configuration** – full cleanup.
+10. **Help & Documentation** – built-in manual with links.
+11. **Exit** – safely terminate; auto-restores interfaces & removes venv/.
 
 ## Code of Conduct & Disclaimer
-> Before proceeding, you must accept the following conditions:
-Code of Conduct & Disclaimer
-This tool is provided solely for research and educational purposes.
-You agree to use this tool responsibly and only in authorized environments.
-Unauthorized use is illegal and may result in severe legal consequences.
-The developers are not responsible for any damage or legal issues resulting from misuse.
 
->>Type "I agree" to continue.
+Before the tool will run you must type `I agree` at the prompt.  
+This confirms that you have authorisation, accept all legal responsibility, and will use FAPA only for ethical research.
 
 ## Contributing
-Contributions are welcome! We invite researchers and security professionals to help improve this tool. Please fork the repository and submit pull requests with your enhancements. For major changes, please open an issue first to discuss what you would like to change.
+
+We welcome pull requests from researchers, educators and red-teamers.
+
+1. Fork → `git checkout -b feat/<topic>`
+2. Follow PEP 8, include type hints & docstrings.
+3. Add/update markdown docs when relevant.
+4. Test exclusively in a lab environment.
+5. Submit a PR with clear description, screenshots or GIF demos.
 
 ## Additional Resources
-- **Hostapd:** https://w1.fi/hostapd/
 
-- **Dnsmasq:** http://www.thekelleys.org.uk/dnsmasq/doc.html
-
-- **Bettercap:** https://www.bettercap.org/
-
-- **Ettercap:** https://ettercap.github.io/ettercap/
-
-- **Mitmproxy:** https://mitmproxy.org/
-
-- **Wifiphisher:** https://wifiphisher.org/
-
-- **Scapy:** https://scapy.readthedocs.io/en/latest/usage.html
-
-- **Nmap NSE Documentation:** https://nmap.org/nsedoc/
-
-- **Telegram Bot API:** https://core.telegram.org/bots/api
+- Hostapd: https://w1.fi/hostapd/
+- Dnsmasq: http://www.thekelleys.org.uk/dnsmasq/doc.html
+- Bettercap: https://www.bettercap.org/
+- Ettercap: https://ettercap.github.io/ettercap/
+- mitmproxy: https://mitmproxy.org/
+- Wifiphisher: https://wifiphisher.org/
+- Evilginx2: https://github.com/kgretzky/evilginx2
+- Scapy: https://scapy.readthedocs.io/
+- Nmap NSE: https://nmap.org/nsedoc/
+- Telegram Bot API: https://core.telegram.org/bots/api
 
 ## License
-This project is licensed under the MIT License. See the [LICENSE](https://choosealicense.com/licenses/mit/) file for details.
 
-##
-Note: This tool is a work in progress. We welcome contributions from the research community to improve functionality, add language support, and refine features.
+This project is licensed under the MIT License. See LICENSE for details.
+
+FAPA is in active development. Your suggestions and bug reports help drive new features—thank you!
