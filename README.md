@@ -6,6 +6,8 @@ Version 0.3 · May 2025  |  Proof-of-concept framework for Wi-Fi security resear
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Version](https://img.shields.io/badge/version-v0.3-orange.svg)
 
+![fapa-banner.png](https://i.postimg.cc/LX6cPNXG/fapa-banner.png)
+
 ## Overview
 
 The Fake Access Point Attack Tool (FAPA) is a full-stack lab environment that shows how dangerous it is to join "free Wi-Fi". It creates a rogue AP, silently funnels client traffic through the attacker, and then lets you chain together Man-in-the-Middle attacks, phishing portals, vulnerability scans, packet injection, credential harvesting, real-time monitoring, and reporting—all from one interactive Python script.
