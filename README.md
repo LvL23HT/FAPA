@@ -38,7 +38,7 @@ Below is a comprehensive list of what FAPA can do. Items marked 🆕 are new in 
 ### Requirements
 
 - OS: Kali Linux (recommended) or any Debian-based distro
-- Python 3.9+
+- Python 3.8+
 - Root privileges (sudo)
 - Packages (auto-installed on first run):
   ```
@@ -111,6 +111,6 @@ We welcome pull requests from researchers, educators and red-teamers.
 
 ## License
 
-This project is licensed under the MIT License. See LICENSE for details.
+This project is licensed under the MIT License. See [LICENSE](https://github.com/LvL23HT/FAPA/blob/main/LICENSE) for details.
 
 FAPA is in active development. Your suggestions and bug reports help drive new features—thank you!
